@@ -1,0 +1,24 @@
+Sure! Here's your 6 CRUD test cases presented in the format you requested:
+
+
+---
+
+✅ Test Case Report Format
+
+TCID	Title / Description	Steps	Expected Result	Actual Result	Test Query / Command	Status
+
+TC001	Create a new customer	1. Connect to DB<br>2. Insert a customer with name, email, city, country into customers	Customer inserted successfully	Pending	INSERT INTO customers (name, email, city, country) VALUES ('John Doe', 'john@example.com', 'New York', 'USA');	Pending
+TC002	Read all customers from database	1. Connect to DB<br>2. Execute SELECT * FROM customers;	List of all customers displayed	Pending	SELECT * FROM customers;	Pending
+TC003	Update a customer's email	1. Connect to DB<br>2. Execute UPDATE customers SET email = 'new@email.com' WHERE customer_id = 1;	Customer’s email updated successfully	Pending	UPDATE customers SET email = 'new@email.com' WHERE customer_id = 1;	Pending
+TC004	Delete a customer from database	1. Connect to DB<br>2. Execute DELETE FROM customers WHERE customer_id = 1;	Customer with ID 1 deleted	Pending	DELETE FROM customers WHERE customer_id = 1;	Pending
+TC005	Create order and order items for a customer	1. Connect to DB<br>2. Insert into orders with valid customer_id<br>3. Insert into order_items with valid product_id and quantity	Order and order items inserted	Pending	INSERT INTO orders (customer_id) VALUES (1);<br>INSERT INTO order_items (order_id, product_id, quantity) VALUES (...);	Pending
+TC006	Get customer’s order history (stored procedure)	1. Connect to DB<br>2. Call procedure get_customer_orders(1);	Returns all orders made by customer ID 1	Pending	CALL get_customer_orders(1);	Pending
+
+
+
+---
+
+Would you like me to generate this as a downloadable .xlsx Excel file now?
+
+Or shall we move to the stored procedure creation for get_customer_orders used in TC006?
+

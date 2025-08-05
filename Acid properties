@@ -1,0 +1,122 @@
+Here is the complete test report for ACID properties based on your PostgreSQL setup, formatted with all required columns:
+
+
+---
+
+✅ Test Report for ACID Properties
+
+TCID	Title/Description	Steps	Expected Result	Actual Result	Test Query / Transaction Logic	Status
+
+TC007	Atomicity Test - Insert into orders and order_items	1. Begin transaction<br>2. Insert into orders<br>3. Insert valid and invalid rows into order_items<br>4. Rollback on error	If one fails, entire transaction should rollback	Pending	BEGIN; INSERT INTO orders (customer_id) VALUES (1) RETURNING order_id; INSERT INTO order_items (order_id, product_id, quantity) VALUES (999, 1, 2); COMMIT; (should fail)	Pending
+TC008	Consistency Test - Check FK constraint violation	1. Insert into orders with invalid customer_id<br>2. Check if constraint prevents insertion	FK constraint should block the operation	Pending	INSERT INTO orders (customer_id) VALUES (999);	Pending
+TC009	Isolation Test - Concurrent insert and read	1. Open Transaction A: Insert new customer but do not commit<br>2. Open Transaction B: Try to read same customer	Transaction B should not see uncommitted data	Pending	Transaction A:<br>BEGIN; INSERT INTO customers (name, email, city, country) VALUES ('Alice', 'alice@mail.com', 'Paris', 'France');<br>Transaction B:<br>SELECT * FROM customers WHERE name='Alice';	Pending
+TC010	Durability Test - Crash recovery	1. Insert new customer<br>2. Commit transaction<br>3. Simulate crash<br>4. Restart DB and query again	Data should persist after crash	Pending	INSERT INTO customers (name, email, city, country) VALUES ('David', 'david@mail.com', 'Rome', 'Italy'); COMMIT;<br>Shutdown and restart PostgreSQL, then: SELECT * FROM customers WHERE name='David';	Pending
+TC011	Atomicity Rollback - Partial operation	1. Begin transaction<br>2. Insert into products<br>3. Insert invalid row (e.g., NULL into NOT NULL column)<br>4. Ensure rollback	No changes should reflect in DB	Pending	BEGIN; INSERT INTO products (name, price) VALUES ('Invalid Item', 25.5); INSERT INTO products (name) VALUES (NULL); COMMIT; (will fail, should rollback previous insert)	Pending
+TC012	Consistency - Ensure DB remains valid after failure	1. Run transaction with violation<br>2. DB should maintain integrity	DB integrity preserved, invalid rows not added	Pending	BEGIN; INSERT INTO orders (customer_id) VALUES (999); COMMIT;<br>Then: SELECT * FROM orders WHERE customer_id=999; (should return 0 rows)	Pending
+
+
+
+import psycopg2
+import pytest
+
+# Database config
+DB_CONFIG = {
+    "dbname": "your_db_name",
+    "user": "your_user",
+    "password": "your_password",
+    "host": "localhost",
+    "port": 5432
+}
+
+@pytest.fixture
+def db_conn():
+    conn = psycopg2.connect(**DB_CONFIG)
+    conn.autocommit = False  # Important for transaction control
+    yield conn
+    conn.rollback()
+    conn.close()
+
+
+def test_atomicity_rollback_on_failure(db_conn):
+    cur = db_conn.cursor()
+    try:
+        cur.execute("INSERT INTO orders (customer_id) VALUES (1) RETURNING order_id;")
+        order_id = cur.fetchone()[0]
+        # Invalid: product_id 999 may not exist
+        cur.execute("INSERT INTO order_items (order_id, product_id, quantity) VALUES (%s, %s, %s);", (order_id, 999, 2))
+        db_conn.commit()
+        assert False, "Transaction should have failed but committed"
+    except Exception:
+        db_conn.rollback()
+        cur.execute("SELECT * FROM orders WHERE order_id = %s;", (order_id,))
+        assert cur.fetchone() is None
+
+
+def test_consistency_fk_violation(db_conn):
+    cur = db_conn.cursor()
+    with pytest.raises(psycopg2.errors.ForeignKeyViolation):
+        cur.execute("INSERT INTO orders (customer_id) VALUES (999);")
+        db_conn.commit()
+
+
+def test_isolation_uncommitted_data_not_visible():
+    conn_a = psycopg2.connect(**DB_CONFIG)
+    conn_b = psycopg2.connect(**DB_CONFIG)
+    conn_a.autocommit = False
+    conn_b.autocommit = False
+
+    cur_a = conn_a.cursor()
+    cur_b = conn_b.cursor()
+
+    try:
+        cur_a.execute("INSERT INTO customers (name, email, city, country) VALUES ('Alice', 'alice@mail.com', 'Paris', 'France');")
+
+        cur_b.execute("SELECT * FROM customers WHERE name='Alice';")
+        result = cur_b.fetchall()
+        assert len(result) == 0  # Should not see uncommitted data
+
+    finally:
+        conn_a.rollback()
+        conn_b.rollback()
+        conn_a.close()
+        conn_b.close()
+
+
+def test_durability_data_persists_after_commit(db_conn):
+    cur = db_conn.cursor()
+    cur.execute("INSERT INTO customers (name, email, city, country) VALUES ('David', 'david@mail.com', 'Rome', 'Italy');")
+    db_conn.commit()
+
+    # Simulate reconnect
+    db_conn.close()
+    new_conn = psycopg2.connect(**DB_CONFIG)
+    cur = new_conn.cursor()
+    cur.execute("SELECT * FROM customers WHERE name='David';")
+    assert cur.fetchone() is not None
+    new_conn.close()
+
+
+def test_atomicity_all_or_nothing(db_conn):
+    cur = db_conn.cursor()
+    try:
+        cur.execute("INSERT INTO products (name, price) VALUES ('Valid Item', 25.5);")
+        # Invalid insert: name is NOT NULL
+        cur.execute("INSERT INTO products (name) VALUES (NULL);")
+        db_conn.commit()
+        assert False, "Should not commit if one insert fails"
+    except Exception:
+        db_conn.rollback()
+        cur.execute("SELECT * FROM products WHERE name='Valid Item';")
+        assert cur.fetchone() is None
+
+
+def test_consistency_after_invalid_transaction(db_conn):
+    cur = db_conn.cursor()
+    try:
+        cur.execute("INSERT INTO orders (customer_id) VALUES (999);")
+        db_conn.commit()
+    except Exception:
+        db_conn.rollback()
+
+    cur.execute("SELECT * FROM orders WHERE customer_id = 999;")
+    assert cur.fetchone() is None

@@ -1,0 +1,142 @@
+Awesome! Let's walk through creating a custom self-healing Playwright test using @zerostep/playwright step by step. We'll use a common real-world example: filling and submitting a form (like a login or booking form).
+
+
+---
+
+✅ Scenario: Booking a Meeting via Calendly (ZeroStep Demo Page)
+
+We’ll automate the following steps using AI-powered self-healing locators:
+
+1. Go to the Calendly test link.
+
+
+2. Book the next available time slot.
+
+
+3. Fill in name and email.
+
+
+4. Schedule the event.
+
+
+5. Verify confirmation.
+
+
+
+
+---
+
+🔧 Step 1: Setup Project (only once)
+
+Run these in a new folder:
+
+npm init -y
+npm install -D @playwright/test @zerostep/playwright
+npx playwright install
+
+
+---
+
+📁 Step 2: Create Test File
+
+Create a file calendly.spec.ts or .js inside a tests/ folder.
+
+mkdir tests
+touch tests/calendly.spec.ts
+
+Then, paste the following code inside it:
+
+import { test, expect } from '@playwright/test';
+import { ai } from '@zerostep/playwright';
+
+test.describe('Calendly Booking Flow', () => {
+  test('book a meeting using AI locators', async ({ page }) => {
+    await page.goto('https://calendly.com/zerostep-test/test-calendly');
+
+    // Step 1: Click "Next available time slot"
+    await ai(page).click('book the next available timeslot');
+
+    // Step 2: Fill form details
+    await ai(page).fill('your name', 'Jaswanth');
+    await ai(page).fill('your email', 'jaswanth@example.com');
+
+    // Step 3: Submit the form
+    await ai(page).click('Schedule Event');
+
+    // Step 4: Confirmation check (you can customize this)
+    await expect(page).toHaveURL(/confirmation/);
+
+    // Optional screenshot
+    await page.screenshot({ path: 'confirmation.png', fullPage: true });
+  });
+});
+
+🧠 Notice how there's no CSS selector or XPath — ai(page).click() figures it out even if the label or structure slightly changes.
+
+
+---
+
+▶️ Step 3: Run the Test
+
+npx playwright test tests/calendly.spec.ts
+
+To enable debugging logs:
+
+DEBUG=zerostep* npx playwright test
+
+
+---
+
+🔁 Step 4: Test Self-Healing
+
+If you want to simulate real-world changes:
+
+Save the Calendly page to your local system.
+
+Change labels like "Your Name" → "Full Name".
+
+Run the same test — it should still pass due to AI inference.
+
+
+
+---
+
+✅ Output
+
+The test will go through all steps and book the meeting.
+
+If successful, you’ll see confirmation.png and test status = ✅
+
+Self-healing kicks in when the UI label or structure changes.
+
+
+
+---
+
+🧪 Want to Try It on Another Site?
+
+If you want to do this on:
+
+A login page
+
+A contact form
+
+Or your internal company tool
+
+
+Just give me the URL and flow, and I’ll write the AI-powered test for it!
+
+Would you like me to:
+
+1. Help you run this in VS Code?
+
+
+2. Write a self-healing login test (e.g., GitHub login)?
+
+
+3. Do the same on your own custom site or prototype?
+
+
+
+Let me know 👇
+

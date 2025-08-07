@@ -1,0 +1,90 @@
+# eda_churn.py
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import ttest_ind, chi2_contingency
+
+# Download dataset from open URL
+url = "https://raw.githubusercontent.com/blastchar/telco-churn/master/WA_Fn-UseC_-Telco-Customer-Churn.csv"
+df = pd.read_csv(url)
+
+# Show shape and columns
+print("Dataset Shape:", df.shape)
+print("Columns:\n", df.columns.tolist())
+
+# Replace spaces with NaN and drop missing values
+df.replace(" ", np.nan, inplace=True)
+df.dropna(inplace=True)
+
+# Drop customerID as it's not useful
+df.drop(columns=['customerID'], inplace=True)
+
+# Convert TotalCharges to numeric
+df['TotalCharges'] = pd.to_numeric(df['TotalCharges'])
+
+# -------------------------------
+# 🧠 Univariate Analysis
+# -------------------------------
+
+# Summary stats for numerical columns
+print("\nDescriptive Statistics:\n", df.describe())
+
+# Churn distribution
+print("\nChurn Distribution:\n", df['Churn'].value_counts())
+sns.countplot(x='Churn', data=df)
+plt.title("Churn Count")
+plt.show()
+
+# -------------------------------
+# 🧠 Bivariate Analysis
+# -------------------------------
+
+# Boxplot: MonthlyCharges vs Churn
+sns.boxplot(x='Churn', y='MonthlyCharges', data=df)
+plt.title("Monthly Charges vs Churn")
+plt.show()
+
+# Cross-tab: Contract vs Churn
+ct = pd.crosstab(df['Contract'], df['Churn'], normalize='index')
+ct.plot(kind='bar', stacked=True)
+plt.title("Churn by Contract Type")
+plt.ylabel("Proportion")
+plt.show()
+
+# -------------------------------
+# 🔍 Outlier Detection (IQR)
+# -------------------------------
+def detect_outliers(col):
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
+    print(f"{col} has {len(outliers)} outliers")
+
+for col in ['MonthlyCharges', 'TotalCharges', 'tenure']:
+    detect_outliers(col)
+
+# -------------------------------
+# 📊 Correlation Heatmap
+# -------------------------------
+corr = df.corr(numeric_only=True)
+sns.heatmap(corr, annot=True, cmap='coolwarm')
+plt.title("Correlation Matrix")
+plt.show()
+
+# -------------------------------
+# 📏 T-Test: MonthlyCharges vs Churn
+# -------------------------------
+churn_yes = df[df['Churn'] == 'Yes']['MonthlyCharges']
+churn_no = df[df['Churn'] == 'No']['MonthlyCharges']
+t_stat, p_val = ttest_ind(churn_yes, churn_no)
+print(f"\nT-Test MonthlyCharges:\n t-stat = {t_stat:.2f}, p-value = {p_val:.4f}")
+
+# -------------------------------
+# 📏 Chi-Square Test: Contract vs Churn
+# -------------------------------
+chi_table = pd.crosstab(df['Contract'], df['Churn'])
+chi2, p, dof, expected = chi2_contingency(chi_table)
+print(f"\nChi-Square Test (Contract vs Churn):\n chi2 = {chi2:.2f}, p = {p:.4f}")

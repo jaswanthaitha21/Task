@@ -1,0 +1,208 @@
+Awesome! Let's walk step-by-step from scratch and set up a ZeroStep AI-powered Playwright test that:
+
+✅ Uses ChatGPT via API to get dynamic input
+✅ Opens a browser using Playwright
+✅ Uses AI-based steps (ai()) to interact naturally
+✅ Searches or interacts on a site using ChatGPT's response
+
+
+---
+
+🧱 STEP-BY-STEP GUIDE
+
+We'll build everything from zero. Let's go! 🚀
+
+
+---
+
+🛠️ Step 1: Create Project Directory
+
+mkdir zerostep-chatgpt-playwright
+cd zerostep-chatgpt-playwright
+
+
+---
+
+📦 Step 2: Initialize Project
+
+npm init -y
+
+
+---
+
+📥 Step 3: Install Dependencies
+
+npm install @playwright/test @zerostep/playwright openai dotenv
+
+Then install Playwright binaries:
+
+npx playwright install
+
+
+---
+
+📁 Step 4: Create Required Files
+
+Run these:
+
+touch .env
+touch chatgpt.js
+touch example.spec.js
+touch playwright.config.js
+
+
+---
+
+🔐 Step 5: Set OpenAI API Key
+
+In .env:
+
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxx
+
+(Replace with your actual key from https://platform.openai.com)
+
+
+---
+
+🤖 Step 6: Create chatgpt.js
+
+// chatgpt.js
+require('dotenv').config();
+const { OpenAI } = require('openai');
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+async function askChatGPT(prompt) {
+  const chatCompletion = await openai.chat.completions.create({
+    model: "gpt-4",
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  return chatCompletion.choices[0].message.content.trim();
+}
+
+module.exports = { askChatGPT };
+
+
+---
+
+📄 Step 7: Create example.spec.js
+
+This is your main test script:
+
+// example.spec.js
+import { test, expect } from '@playwright/test';
+import { ai } from '@zerostep/playwright';
+import { askChatGPT } from './chatgpt.js';
+
+test.describe('AI-powered browser test with ChatGPT', () => {
+  test('Search GPT response on Google', async ({ page }) => {
+    // Step 1: Ask ChatGPT something
+    const response = await askChatGPT('Tell me an interesting fact about space');
+    console.log("🔍 GPT Response:", response);
+
+    // Step 2: Open Google
+    await page.goto('https://www.google.com');
+
+    // Step 3: AI-powered interaction
+    await ai('Accept cookies if popup appears', { page, test });
+    await ai(`Search for: ${response}`, { page, test });
+
+    // Step 4: Verify result exists
+    const result = page.locator('h3').first();
+    await expect(result).toBeVisible();
+  });
+});
+
+
+---
+
+⚙️ Step 8: Create playwright.config.js
+
+// playwright.config.js
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  use: {
+    headless: false, // set to true if you don't want the browser to open
+    viewport: { width: 1280, height: 720 },
+  },
+  timeout: 60000,
+});
+
+
+---
+
+▶️ Step 9: Run the Test
+
+npx playwright test example.spec.js
+
+This will:
+
+1. Ask ChatGPT for a space fact
+
+
+2. Open Google
+
+
+3. Use ai() to search the ChatGPT response
+
+
+4. Verify that some result is visible
+
+
+
+
+---
+
+🧪 Sample Output (Console)
+
+🔍 GPT Response: Did you know that one day on Venus is longer than its year?
+✓ Search GPT response on Google (15s)
+
+Browser opens → Google loads → Search happens → Test passes ✅
+
+
+---
+
+✅ You Did It!
+
+Now you’ve built a full stack like this:
+
+Component	Purpose
+
+@playwright/test	Browser automation
+@zerostep/playwright	Natural-language actions via ai()
+openai	Use GPT-4 to generate dynamic input
+dotenv	Secure API key management
+
+
+
+---
+
+🧠 Bonus Ideas You Can Try
+
+Task	Sample ai()
+
+Fill a form	Fill in the name and email fields
+Click buttons	Click on the Subscribe button
+Select options	Select tomorrow's date from calendar
+Automate login	Enter username and password, then click Login
+
+
+
+---
+
+Would you like me to help you:
+
+🤖 Create a full flow like “fill a form” using GPT input?
+
+📽️ Record the test as a video?
+
+💾 Save ChatGPT results to a file?
+
+
+Let me know how you'd like to expand it!
+

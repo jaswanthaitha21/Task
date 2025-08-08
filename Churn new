@@ -1,0 +1,115 @@
+# eda_churn.py
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy.stats import ttest_ind, chi2_contingency
+
+# -------------------------------
+# 1. Load the Dataset
+# -------------------------------
+df = pd.read_csv("churn.csv")  # Replace with your file name
+
+print("Shape:", df.shape)
+print("\nColumns:", df.columns.tolist())
+print("\nData Types:\n", df.dtypes)
+print("\nMissing Values:\n", df.isnull().sum())
+
+# -------------------------------
+# 2. Data Cleaning
+# -------------------------------
+# Drop duplicates if any
+df.drop_duplicates(inplace=True)
+
+# Handle missing values (drop or fill)
+df.dropna(inplace=True)
+
+# Drop CustomerID (not useful for analysis)
+if 'CustomerID' in df.columns:
+    df.drop(columns=['CustomerID'], inplace=True)
+
+# -------------------------------
+# 3. Univariate Analysis
+# -------------------------------
+print("\nSummary Statistics:\n", df.describe())
+
+# Target variable distribution
+print("\nChurn Distribution:\n", df['Churn'].value_counts())
+sns.countplot(x='Churn', data=df)
+plt.title("Churn Distribution")
+plt.show()
+
+# Numerical columns distribution
+num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+for col in num_cols:
+    plt.figure()
+    sns.histplot(df[col], kde=True)
+    plt.title(f"Distribution of {col}")
+    plt.show()
+
+# Categorical columns distribution
+cat_cols = df.select_dtypes(include='object').columns.tolist()
+cat_cols = [col for col in cat_cols if col != 'Churn']
+for col in cat_cols:
+    plt.figure(figsize=(6,3))
+    sns.countplot(y=col, data=df, order=df[col].value_counts().index)
+    plt.title(f"Distribution of {col}")
+    plt.show()
+
+# -------------------------------
+# 4. Bivariate Analysis
+# -------------------------------
+# Numerical vs Churn
+for col in num_cols:
+    plt.figure()
+    sns.boxplot(x='Churn', y=col, data=df)
+    plt.title(f"{col} vs Churn")
+    plt.show()
+
+# Categorical vs Churn (Proportion plot)
+for col in cat_cols:
+    ct = pd.crosstab(df[col], df['Churn'], normalize='index')
+    ct.plot(kind='bar', stacked=True, figsize=(6,3))
+    plt.title(f"{col} vs Churn")
+    plt.ylabel("Proportion")
+    plt.show()
+
+# -------------------------------
+# 5. Outlier Detection (IQR method)
+# -------------------------------
+def detect_outliers(col):
+    Q1 = df[col].quantile(0.25)
+    Q3 = df[col].quantile(0.75)
+    IQR = Q3 - Q1
+    outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
+    print(f"{col}: {len(outliers)} outliers detected")
+
+for col in num_cols:
+    detect_outliers(col)
+
+# -------------------------------
+# 6. Correlation Analysis
+# -------------------------------
+corr = df.corr(numeric_only=True)
+plt.figure(figsize=(10,8))
+sns.heatmap(corr, annot=True, cmap='coolwarm')
+plt.title("Correlation Matrix")
+plt.show()
+
+# -------------------------------
+# 7. Statistical Tests
+# -------------------------------
+
+# T-Test: Example -> Total Spend vs Churn
+if 'Total Spend' in df.columns:
+    churn_yes = df[df['Churn'] == 'Yes']['Total Spend']
+    churn_no = df[df['Churn'] == 'No']['Total Spend']
+    t_stat, p_val = ttest_ind(churn_yes, churn_no)
+    print(f"\nT-Test (Total Spend vs Churn): t-stat = {t_stat:.2f}, p-value = {p_val:.4f}")
+
+# Chi-Square Test: Example -> Subscription Type vs Churn
+if 'Subscription Type' in df.columns:
+    chi_table = pd.crosstab(df['Subscription Type'], df['Churn'])
+    chi2, p, dof, expected = chi2_contingency(chi_table)
+    print(f"\nChi-Square Test (Subscription Type vs Churn): chi2 = {chi2:.2f}, p = {p:.4f}")

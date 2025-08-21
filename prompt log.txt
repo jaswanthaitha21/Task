@@ -1,0 +1,68 @@
+---
+
+# 📜 Prompt Log
+
+### **Prompt 1**
+
+*"I want a Streamlit app that lets me upload multiple insurance PDFs, extracts text, generates a structured summary in paragraph form, creates a Q\&A section, and shows a comparison table between insurers."*
+
+🔎 **Reasoning**: Initial broad request to set up the app structure. Copilot gave a rough version with text extraction + summaries but used a table format for the structured summary.
+
+---
+
+### **Prompt 2**
+
+*"Change the structured summary to be in paragraphs instead of a table. Keep Q\&A section as it is."*
+
+🔎 **Reasoning**: Summaries should read like natural descriptions for HR/ATS friendliness. Copilot updated code accordingly.
+
+---
+
+### **Prompt 3**
+
+*"Add automatic chart plotting for insurance comparison. Extract key metrics like Sum Insured, Waiting Period, and Claim Settlement Ratio from the PDFs and plot them."*
+
+🔎 **Reasoning**: User wanted data visualization. Copilot added matplotlib/seaborn plots, but initially without metric filtering.
+
+---
+
+### **Prompt 4**
+
+*"Add a dropdown to choose which metric to compare in the chart (Sum Insured, Waiting Period, or Claim Settlement Ratio)."*
+
+🔎 **Reasoning**: Visualization should be interactive instead of plotting all metrics at once. Copilot refactored code to use a Streamlit `selectbox`.
+
+---
+
+### **Prompt 5**
+
+*"Make sure all comparisons and charts only use data extracted from uploaded PDFs, not sample data."*
+
+🔎 **Reasoning**: Earlier Copilot used dummy hardcoded values. Needed real PDF-driven metrics. Updated parsing logic with regex.
+
+---
+
+### **Prompt 6**
+
+*"Refactor the code so that summaries and Q\&A stay untouched (they are already working fine), but only modify the comparison table and visualization parts."*
+
+🔎 **Reasoning**: Preserve working components, only enhance comparison logic. Copilot refactored without breaking summaries/Q\&A.
+
+---
+
+### **Prompt 7**
+
+*"Improve the comparison table by aligning extracted metrics for each insurer side-by-side for easier comparison."*
+
+🔎 **Reasoning**: Earlier version displayed metrics inconsistently. Copilot reformatted into a clean tabular layout.
+
+---
+
+### **Prompt 8**
+
+*"Now give me the final complete code with everything working – multiple PDF upload, structured summary in paragraphs, Q\&A, insurer comparison table, and dropdown-based visualizations."*
+
+🔎 **Reasoning**: Final integration prompt. Copilot produced the complete polished code combining all features.
+
+---
+

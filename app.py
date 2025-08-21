@@ -10,7 +10,7 @@ from typing import Dict, Optional, Tuple
 # ---------------------------
 # Configure Gemini API
 # ---------------------------
-genai.configure(api_key="AIzaSyDdMi8XFsFo2ALx6VLa9YAAyViUpaM3rsU")
+genai.configure(api_key="You_API_KEY")
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 # --- Helper functions ---
@@ -318,3 +318,4 @@ Question:
                     st.markdown(f"**Q{i}: {q}**")
                     st.write(a)
                     st.markdown("---")
+

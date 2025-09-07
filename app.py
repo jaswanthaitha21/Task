@@ -87,7 +87,6 @@ def generate_pdf_report(claim_data, chat_history=None):
     pdf.set_font("Arial", size=11)
     for item in items:
         pdf.cell(90, 8, item['damage'].title(), border=1)
-        # ✅ Fixed: Now shows correct status
         covered_status = "Yes" if item['covered'] else "No"
         pdf.cell(30, 8, covered_status, border=1)
         pdf.cell(40, 8, f"${item['cost']}", border=1)
@@ -176,7 +175,7 @@ if 'is_speaking' not in st.session_state:
     st.session_state.is_speaking = False
 
 # -------------------------------
-# Header (Removed Reset Button)
+# Header
 st.markdown("<h1 style='text-align:center; color:#0078d4;'>🚗 AutoClaim Pro</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center; color:#555;'>Smart Insurance Claim Assistant with AI Insights</p>", unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
@@ -245,9 +244,13 @@ if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
         f.write(uploaded_policy.read())
     st.session_state.claim_data['policy_path'] = path
 
-    with st.spinner("📄 Extracting policy..."):
+    with st.spinner("📄 Extracting policy text..."):
         try:
-            raw = extract_text_from_pdf(path) if ext == "pdf" else extract_text_from_image(path)
+            if ext == "pdf":
+                raw = extract_text_from_pdf(path)
+            else:
+                raw = extract_text_from_image(path)
+
             covered = parse_policy_text(raw)
             st.session_state.claim_data['covered_items'] = covered
 
@@ -270,7 +273,6 @@ if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
     is_covered = detected in covered_items
 
     items, _ = estimate_cost([detected])
-    # Recalculate covered status
     covered_items_set = set(covered_items)
     covered_amount = sum(i['cost'] for i in items if i['damage'] in covered_items_set)
 
@@ -351,14 +353,24 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
 
             with st.spinner("🧠 Thinking..."):
                 try:
-                    context = "\n".join([
-                        f"- Damage: {st.session_state.claim_data.get('detected_damage')}",
-                        f"- Covered: {', '.join(st.session_state.claim_data.get('covered_items', []))}",
-                        f"- Policy: {extract_text_from_pdf(st.session_state.claim_data['policy_path'])[:3000]}..." if st.session_state.claim_data.get('policy_path') else ""
-                    ])
+                    context_parts = [
+                        f"- Detected Damage: {st.session_state.claim_data.get('detected_damage', 'N/A')}",
+                        f"- Confidence: {st.session_state.claim_data.get('confidence', 0):.2f}",
+                        f"- Covered Items: {', '.join(st.session_state.claim_data.get('covered_items', []))}"
+                    ]
+
+                    # Add policy text snippet if available
+                    if st.session_state.claim_data.get('policy_path'):
+                        try:
+                            policy_text = extract_text_from_pdf(st.session_state.claim_data['policy_path']) if st.session_state.claim_data['policy_path'].endswith('.pdf') else extract_text_from_image(st.session_state.claim_data['policy_path'])
+                            context_parts.append(f"- Policy Text Snippet: {policy_text[:2000]}...")
+                        except:
+                            context_parts.append("- Policy Text: Not available")
+
+                    context = "\n".join(context_parts)
 
                     img = Image.open(st.session_state.claim_data['image_path']) if st.session_state.claim_data.get('image_path') else None
-                    prompt = f"{context}\n\nUser: {user_input}\n\nRespond in {'Hindi' if lang=='hi' else 'English'}. Be accurate."
+                    prompt = f"{context}\n\nUser: {user_input}\n\nRespond in {'Hindi' if lang=='hi' else 'English'}. Be accurate and helpful."
 
                     if img:
                         response = model.generate_content([prompt, img])
@@ -378,13 +390,13 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
                         import os
                         try:
                             tts = gTTS(text=answer, lang=lang, slow=False)
-                            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
-                            tts.save(temp_file.name)
-                            temp_file.close()
+                            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+                                tts.save(temp_file.name)
+                                temp_file_path = temp_file.name
 
                             st.session_state.is_speaking = True
                             pygame.mixer.init()
-                            pygame.mixer.music.load(temp_file.name)
+                            pygame.mixer.music.load(temp_file_path)
                             pygame.mixer.music.play()
 
                             with st.container():
@@ -399,7 +411,8 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
                             while st.session_state.is_speaking and pygame.mixer.music.get_busy():
                                 time.sleep(0.1)
                             st.session_state.is_speaking = False
-                            os.unlink(temp_file.name)
+                            if os.path.exists(temp_file_path):
+                                os.unlink(temp_file_path)
                         except Exception as e:
                             st.warning(f"🔊 TTS error: {e}")
 
@@ -412,16 +425,19 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
         st.error(f"❌ AI Assistant: {e}")
 
 # -------------------------------
-# PDF Export Only (No Reset Button)
+# PDF Export Only
 if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
     st.markdown("---")
     st.markdown("### 📎 Export Report")
 
     if st.button("📥 Generate PDF Report"):
         with st.spinner("📄 Generating..."):
-            pdf_path = generate_pdf_report(st.session_state.claim_data, st.session_state.chat_history)
-            with open(pdf_path, "rb") as f:
-                st.download_button("⬇️ Download Report", f, "AutoClaim_Report.pdf", "application/pdf")
+            try:
+                pdf_path = generate_pdf_report(st.session_state.claim_data, st.session_state.chat_history)
+                with open(pdf_path, "rb") as f:
+                    st.download_button("⬇️ Download Report", f, "AutoClaim_Report.pdf", "application/pdf")
+            except Exception as e:
+                st.error(f"❌ PDF Generation Failed: {e}")
 
 # Footer
 st.markdown("<hr>", unsafe_allow_html=True)

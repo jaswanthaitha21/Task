@@ -1,19 +1,18 @@
 # utils.py
 import pytesseract
-
-# Add this at the top of utils.py
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
-
-import pytesseract
 import cv2
 import numpy as np
 import re
 import spacy
-from pdf2image import convert_from_path
 import os
+import fitz  # PyMuPDF
+from PIL import Image
+import io
 
-# Damage to cost mapping (can be extended)
+# Configure Tesseract path (Windows example — adjust if needed)
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# Damage to cost mapping
 DAMAGE_COST = {
     "dent": 300,
     "scratch": 150,
@@ -33,6 +32,7 @@ SEVERITY_RULES = {
 }
 
 def extract_text_from_image(image_path):
+    """Extract text from image using Tesseract OCR"""
     img = cv2.imread(image_path)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
@@ -41,67 +41,94 @@ def extract_text_from_image(image_path):
 
 
 def extract_text_from_pdf(pdf_path):
-    # Try to auto-detect Poppler from PATH, else fallback to manual path
-    default_poppler_path = r"C:\Program Files\poppler-24.08.0\bin"  # <-- update this
-
-    poppler_path = None
-    if os.environ.get("PATH"):
-        for p in os.environ["PATH"].split(os.pathsep):
-            if os.path.exists(os.path.join(p, "pdftoppm.exe")):
-                poppler_path = p
-                break
-
-    if poppler_path is None:  # fallback if not found in PATH
-        poppler_path = default_poppler_path
-        if not os.path.exists(os.path.join(poppler_path, "pdftoppm.exe")):
-            raise FileNotFoundError(
-                f"Poppler not found! Please install it and set PATH, "
-                f"or update poppler_path in utils.py (expected {default_poppler_path})"
-            )
-
-    images = convert_from_path(pdf_path, poppler_path=poppler_path)
+    """
+    Extract text from PDF using PyMuPDF (fitz).
+    - First tries direct text extraction (for digital/native PDFs).
+    - If little/no text found, falls back to rendering pages as images + OCR.
+    """
     full_text = ""
-    for img in images:
-        temp_path = "./temp_img.jpg"
-        img.save(temp_path)
-        full_text += extract_text_from_image(temp_path) + "\n"
-        os.remove(temp_path)  # Cleanup
-    return full_text
+    doc = None
+
+    try:
+        doc = fitz.open(pdf_path)
+
+        # First pass: try direct text extraction
+        for page in doc:
+            text = page.get_text().strip()
+            if text:
+                full_text += text + "\n"
+
+        # Heuristic: if we got meaningful text, return it
+        if len(full_text.strip()) > 50:  # Adjust threshold as needed
+            return full_text.strip()
+
+        # Fallback: render each page as image and OCR it
+        full_text = ""
+        for i, page in enumerate(doc):
+            # Render page to image (increase DPI for better OCR)
+            pix = page.get_pixmap(dpi=200)
+            img_bytes = pix.tobytes("png")
+            img = Image.open(io.BytesIO(img_bytes))
+
+            # Save temp image for OCR
+            temp_img_path = f"./temp_page_{i}.png"
+            img.save(temp_img_path)
+
+            # Use your existing OCR function
+            page_text = extract_text_from_image(temp_img_path)
+            full_text += page_text + "\n"
+
+            # Cleanup
+            if os.path.exists(temp_img_path):
+                os.remove(temp_img_path)
+
+        return full_text.strip()
+
+    except Exception as e:
+        raise Exception(f"Error extracting text from PDF: {e}")
+    finally:
+        if doc:
+            doc.close()
 
 
 def parse_policy_text(text):
+    """Parse policy text to extract covered items"""
     text = text.lower()
     covered = []
 
-    # Simple keyword matching (can be improved with NER)
-    keywords = ["headlight", "windshield", "tire", "lamp", "glass", "bumper", "door"]
+    keywords = ["headlight", "windshield", "tire", "lamp", "glass", "bumper", "door", "dent"]
     for word in keywords:
         if word in text:
-            if word == "headlight" or "lamp" in word:
+            if word in ["headlight", "lamp"]:
                 covered.append("lamp broken")
-            if word == "windshield" or "glass" in word:
+            elif word in ["windshield", "glass"]:
                 covered.append("glass shatter")
-            if word == "tire":
+            elif word == "tire":
                 covered.append("tire damage")
-            if word == "dent" in text:
+            elif word == "dent":
                 covered.append("dent")
-            if word == "bumper":
+            elif word == "bumper":
                 covered.append("bumper damage")
+            elif word == "door":
+                covered.append("door damage")
     return list(set(covered))
 
+
 def estimate_cost(damage_list):
+    """Estimate repair cost for detected damages"""
     total = 0
     details = []
     for d in damage_list:
-        cost = DAMAGE_COST.get(d, 200)
-        covered = True  # Will be checked later against policy
+        cost = DAMAGE_COST.get(d, 200)  # Default $200 if not found
+        covered = True  # Will be validated against policy later
         details.append({"damage": d, "cost": cost, "covered": covered})
         total += cost
     return details, total
 
+
 def get_severity(damage_type):
+    """Get severity level based on damage type"""
     for key in SEVERITY_RULES:
         if key in damage_type:
             return SEVERITY_RULES[key]
     return "Slightly Damaged"
-

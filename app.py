@@ -1,321 +1,428 @@
+# app.py
 import streamlit as st
-import fitz  # PyMuPDF for PDF reading
-import google.generativeai as genai
-import re
+from PIL import Image
+import os
+import uuid
 import pandas as pd
-import matplotlib.pyplot as plt
-import json
-from typing import Dict, Optional, Tuple
+import time
+import google.generativeai as genai
+from fpdf import FPDF
+from io import BytesIO
 
-# ---------------------------
-# Configure Gemini API
-# ---------------------------
-genai.configure(api_key="You_API_KEY")
-model = genai.GenerativeModel("gemini-2.5-flash")
+# Import your modules
+from models import load_car_detector, load_damage_model, detect_car, classify_damage
+from utils import extract_text_from_image, extract_text_from_pdf, parse_policy_text, estimate_cost, get_severity
 
-# --- Helper functions ---
-def extract_text_from_pdf(uploaded_file):
-    text = ""
-    pdf = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-    for page in pdf:
-        text += page.get_text()
-    return text
+# -------------------------------
+# 🔐 HARD CODED GEMINI API KEY (For local testing only)
+GEMINI_API_KEY = "AIzaSyDUvKi1lkLKUPrqZd9Xe1YhKgXs2o3qGOY"
 
-def gemini_generate(prompt):
-    response = model.generate_content(prompt)
-    return response.text
+# -------------------------------
+# Setup directories
+UPLOAD_FOLDER_IMAGES = "uploads/images"
+UPLOAD_FOLDER_POLICIES = "uploads/policies"
+os.makedirs(UPLOAD_FOLDER_IMAGES, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER_POLICIES, exist_ok=True)
 
-def safe_float(num_str: str) -> Optional[float]:
-    if num_str is None:
-        return None
-    s = num_str.replace(",", "").strip()
-    try:
-        return float(s)
-    except Exception:
-        return None
+# -------------------------------
+# ✅ PDF REPORT GENERATION FUNCTION (Fixed: Correct Covered Status)
+def generate_pdf_report(claim_data, chat_history=None):
+    from fpdf import FPDF
+    import os
+    from PIL import Image as PILImage
 
-def normalize_policy_name(text: str, fallback: str) -> str:
-    if not text:
-        return fallback
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip()][:20]
-    for ln in lines:
-        if len(ln) > 8 and re.search(r"(policy|plan|insurance|health|mediclaim)", ln, re.I):
-            if not re.search(r"table of contents|index|disclaimer", ln, re.I):
-                return ln[:120]
-    if lines:
-        return lines[0][:120]
-    return fallback
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
 
-# ---------- Metric Extraction ----------
-SUM_INSURED_PATTERNS = [
-    r"(sum\s*insured|insured\s*sum|coverage\s*amount|cover\s*amount|insured\s*amount)\s*[:\-]?\s*₹?\s*([0-9][0-9,\.]*)\s*(lakh|lac|crore|cr)?",
-    r"₹\s*([0-9][0-9,\.]*)\s*(lakh|lac|crore|cr)?\s*(sum\s*insured|coverage|cover)"
-]
+    # Title
+    pdf.set_font("Arial", 'B', 16)
+    pdf.set_fill_color(0, 120, 212)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(0, 15, "AutoClaim: Insurance Claim Report", ln=True, align="C", fill=True)
+    pdf.ln(10)
 
-WAITING_PERIOD_PATTERNS = [
-    r"(waiting\s*period|initial\s*waiting\s*period)\s*[:\-]?\s*([0-9]{1,3})\s*(days?|months?)",
-    r"([0-9]{1,3})\s*(days?|months?)\s*(?:of)?\s*(?:initial\s*)?waiting\s*period"
-]
+    # Claim Summary
+    pdf.set_font("Arial", size=12)
+    if claim_data.get('detected_damage'):
+        pdf.cell(0, 10, f"Detected Damage: {claim_data['detected_damage'].title()}", ln=True)
+    if claim_data.get('confidence'):
+        pdf.cell(0, 10, f"Confidence: {claim_data['confidence']:.2f}", ln=True)
+    if claim_data.get('covered_items'):
+        covered = ", ".join([c.title() for c in claim_data['covered_items']])
+        pdf.cell(0, 10, f"Policy Covers: {covered}", ln=True)
+    pdf.ln(5)
 
-CLAIM_RATIO_PATTERNS = [
-    r"(claim\s*settlement\s*ratio|claim\s*ratio|incurred\s*claim\s*ratio)\s*[:\-]?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%",
-    r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*(claim\s*settlement\s*ratio|claim\s*ratio)"
-]
+    # Claim Decision
+    detected = claim_data.get('detected_damage')
+    covered_items = claim_data.get('covered_items', [])
+    is_covered = detected in covered_items if detected else False
 
-def _extract_by_patterns(text: str, patterns) -> Optional[Tuple[str, str]]:
-    for pat in patterns:
-        m = re.search(pat, text, flags=re.I)
-        if m:
-            groups = [g for g in m.groups() if g is not None]
-            if len(groups) >= 2:
-                return (groups[-2], groups[-1])
-            elif len(groups) == 1:
-                return (groups[0], "")
-    return None
+    pdf.set_font("Arial", 'B', 12)
+    status_color = (0, 150, 0) if is_covered else (180, 0, 0)
+    pdf.set_text_color(*status_color)
+    pdf.cell(0, 10, f"Claim Status: {'APPROVED' if is_covered else 'PARTIALLY APPROVED/REJECTED'}", ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(10)
 
-def extract_sum_insured(text: str) -> Optional[str]:
-    hit = _extract_by_patterns(text, SUM_INSURED_PATTERNS)
-    if not hit:
-        return None
-    val, unit = hit
-    num = safe_float(val)
-    if num is None:
-        return None
-    unit = unit.lower() if unit else ""
-    if re.search(r"(lakh|lac)", unit):
-        return f"{num:.2f} Lakh"
-    if re.search(r"(crore|cr)", unit):
-        return f"{num * 100:.2f} Lakh"
-    if num >= 100000:
-        return f"{num/100000:.2f} Lakh"
-    return f"{num:.0f}"
+    # Itemized Bill
+    pdf.set_font("Arial", 'B', 13)
+    pdf.cell(0, 10, "Itemized Repair Bill", ln=True)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(90, 8, "Damage Type", border=1)
+    pdf.cell(30, 8, "Covered", border=1)
+    pdf.cell(40, 8, "Estimated Cost", border=1)
+    pdf.ln(8)
 
-def extract_waiting_period(text: str) -> Optional[str]:
-    hit = _extract_by_patterns(text, WAITING_PERIOD_PATTERNS)
-    if not hit:
-        return None
-    val, unit = hit
-    num = safe_float(val)
-    if num is None:
-        return None
-    unit = unit.lower() if unit else "days"
-    if "month" in unit:
-        return f"{int(num*30)} Days"
-    return f"{int(num)} Days"
+    items, _ = estimate_cost([claim_data.get('detected_damage')] if claim_data.get('detected_damage') else [])
 
-def extract_claim_ratio(text: str) -> Optional[str]:
-    hit = _extract_by_patterns(text, CLAIM_RATIO_PATTERNS)
-    if not hit:
-        return None
-    val = hit[0] if hit[0] and re.search(r"\d", hit[0]) else hit[1]
-    num = safe_float(val)
-    if num is None:
-        return None
-    if num <= 1.2:
-        num *= 100
-    return f"{num:.2f}%"
+    # Recalculate 'covered' based on actual policy
+    covered_items_set = set(covered_items)
+    covered_amount = 0
+    for item in items:
+        item['covered'] = item['damage'] in covered_items_set
+        if item['covered']:
+            covered_amount += item['cost']
 
-def ask_gemini_for_metric(policy_name: str, policy_text: str, metric: str) -> Optional[str]:
-    prompt = f"""
-You are given an insurance policy description. Extract the value for the metric exactly and ONLY as a JSON object.
+    pdf.set_font("Arial", size=11)
+    for item in items:
+        pdf.cell(90, 8, item['damage'].title(), border=1)
+        # ✅ Fixed: Now shows correct status
+        covered_status = "Yes" if item['covered'] else "No"
+        pdf.cell(30, 8, covered_status, border=1)
+        pdf.cell(40, 8, f"${item['cost']}", border=1)
+        pdf.ln(8)
 
-Policy Name: "{policy_name}"
-Metric: "{metric}"
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(120, 10, "Approved Claim Amount:", border=0)
+    pdf.cell(40, 10, f"${covered_amount}", border=0, ln=True)
+    pdf.ln(10)
 
-Rules:
-- If found, return exact value with units/%.
-- If NOT found, use reliable knowledge to provide a typical/recent value.
-- Output MUST be valid JSON: {{ "metric": "...", "value": "..." }}
-
-Policy Text:
-\"\"\"{policy_text[:15000]}\"\"\" 
-"""
-    try:
-        raw = gemini_generate(prompt)
+    # Car Image
+    if claim_data.get('image_path') and os.path.exists(claim_data['image_path']):
         try:
-            js = json.loads(raw)
-        except Exception:
-            m = re.search(r"\{[\s\S]*\}", raw)
-            if m:
-                js = json.loads(m.group(0))
-            else:
-                return None
-        return str(js.get("value")).strip()
-    except Exception:
-        return None
+            img = PILImage.open(claim_data['image_path'])
+            temp_img = "temp_report_image.jpg"
+            img.save(temp_img, "JPEG", quality=85)
+            pdf.image(temp_img, x=10, w=180)
+            os.remove(temp_img)
+            pdf.ln(85)
+        except Exception as e:
+            pdf.cell(0, 10, "Car image could not be embedded.", ln=True)
 
-def get_three_metrics(policy_name: str, text: str) -> Dict[str, Optional[str]]:
-    metrics = {
-        "Sum Insured": extract_sum_insured(text),
-        "Waiting Period": extract_waiting_period(text),
-        "Claim Settlement Ratio": extract_claim_ratio(text),
+    # Chat Transcript (Optional)
+    if chat_history and len(chat_history) > 0:
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 13)
+        pdf.cell(0, 10, "AI Assistant Chat Transcript", ln=True)
+        pdf.ln(5)
+        pdf.set_font("Arial", size=10)
+        for msg in chat_history:
+            role = "You" if msg["role"] == "user" else "AI Assistant"
+            text = msg["parts"][0]
+            pdf.multi_cell(0, 6, txt=f"{role}: {text}", align="L")
+            pdf.ln(2)
+
+    # Output
+    pdf_file = "AutoClaim_Report.pdf"
+    pdf.output(pdf_file)
+    return pdf_file
+
+# -------------------------------
+# Custom CSS
+st.markdown("""
+<style>
+    .main { background-color: #f8f9fa; font-family: 'Segoe UI', sans-serif; }
+    .step-header {
+        background-color: #0078d4; color: white; padding: 12px 16px; border-radius: 10px;
+        font-size: 1.2em; font-weight: bold; margin: 20px 0; box-shadow: 0 4px 8px rgba(0,0,0,0.1);
     }
-    for k, v in metrics.items():
-        if not v:
-            ai_val = ask_gemini_for_metric(policy_name, text, k)
-            if ai_val:
-                metrics[k] = ai_val
-    return metrics
+    .metric-card {
+        background: white; padding: 15px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        text-align: center; margin-bottom: 15px;
+    }
+    .metric-value { font-size: 1.5em; font-weight: bold; color: #0078d4; }
+    .metric-label { font-size: 0.9em; color: #555; }
+    .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin: 15px 0; }
+    .success-box { background-color: #d4edda; color: #155724; padding: 12px; border-radius: 8px; border-left: 5px solid #28a745; margin: 10px 0; }
+    .error-box { background-color: #f8d7da; color: #721c24; padding: 12px; border-radius: 8px; border-left: 5px solid #dc3545; margin: 10px 0; }
+    .info-box { background-color: #d1ecf1; color: #0c5460; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin: 10px 0; }
+    .stChatMessage { border-radius: 12px !important; padding: 10px 15px; }
+    [data-testid="stButton"] button { background-color: #0078d4; color: white; }
+</style>
+""", unsafe_allow_html=True)
 
-def to_number_for_plot(value: Optional[str], metric: str) -> Optional[float]:
-    if not value:
-        return None
-    v = value.strip()
-    if metric == "Sum Insured":
-        m = re.search(r"([0-9][0-9,\.]*)\s*(lakh|lac)?", v, re.I)
-        if m:
-            num = safe_float(m.group(1))
-            if num is None:
-                return None
-            unit = (m.group(2) or "").lower()
-            if unit in ["lakh", "lac"]:
-                return float(num)
-            if num >= 100000:
-                return num / 100000.0
-            return num
-    elif metric == "Waiting Period":
-        m = re.search(r"([0-9]{1,4})\s*days?", v, re.I)
-        if m:
-            return float(m.group(1))
-        m = re.search(r"([0-9]{1,3})\s*months?", v, re.I)
-        if m:
-            return float(m.group(1)) * 30.0
-    elif metric == "Claim Settlement Ratio":
-        m = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%", v)
-        if m:
-            return float(m.group(1))
-        m = re.search(r"([01](?:\.[0-9]+)?)$", v)
-        if m:
-            return float(m.group(1)) * 100.0
-    return None
+# -------------------------------
+# Load models
+@st.cache_resource
+def get_models():
+    car_model = load_car_detector()
+    damage_processor, damage_model = load_damage_model()
+    return car_model, damage_processor, damage_model
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Policy Comparator", layout="wide")
-st.title("📄 Insurance Policy Comparator")
-st.markdown("Upload two policy documents (PDFs) to generate summaries, comparisons, and visual insights.")
+try:
+    car_detector, damage_processor, damage_classifier = get_models()
+except Exception as e:
+    st.markdown(f'<div class="error-box">❌ Failed to load models: {e}</div>', unsafe_allow_html=True)
+    st.stop()
 
-# Initialize session state
-for key in ["text1", "text2", "summary1", "summary2", "comparison",
-            "policy1_name", "policy2_name", "metrics_df", "qa_mode", "qa_history"]:
-    if key not in st.session_state:
-        st.session_state[key] = None if key not in ["qa_mode", "qa_history"] else (False if key=="qa_mode" else [])
+# -------------------------------
+# Session state initialization
+if 'claim_data' not in st.session_state:
+    st.session_state.claim_data = {}
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'is_speaking' not in st.session_state:
+    st.session_state.is_speaking = False
 
-# Upload section
-col1, col2 = st.columns(2)
-with col1:
-    pdf1 = st.file_uploader("Upload Policy Document 1", type="pdf")
-with col2:
-    pdf2 = st.file_uploader("Upload Policy Document 2", type="pdf")
+# -------------------------------
+# Header (Removed Reset Button)
+st.markdown("<h1 style='text-align:center; color:#0078d4;'>🚗 AutoClaim Pro</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#555;'>Smart Insurance Claim Assistant with AI Insights</p>", unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
 
-if pdf1 and pdf2:
-    if st.button("Generate Summaries"):
-        st.session_state.text1 = extract_text_from_pdf(pdf1)
-        st.session_state.text2 = extract_text_from_pdf(pdf2)
+# -------------------------------
+# Step 1: Upload Car Image
+st.markdown('<div class="step-header">📷 Upload Car Damage Photo</div>', unsafe_allow_html=True)
+uploaded_image = st.file_uploader("Drag & drop your car image", type=["jpg", "jpeg", "png"], key="img_up")
 
-        st.session_state.summary1 = gemini_generate(
-            f"Summarize this insurance policy in a structured but **paragraph** style: {st.session_state.text1}"
-        )
-        st.session_state.summary2 = gemini_generate(
-            f"Summarize this insurance policy in a structured but **paragraph** style: {st.session_state.text2}"
-        )
+if uploaded_image:
+    image = Image.open(uploaded_image).convert("RGB")
+    img_path = os.path.join(UPLOAD_FOLDER_IMAGES, f"{uuid.uuid4()}.jpg")
+    image.save(img_path)
+    st.session_state.claim_data['image_path'] = img_path
 
-        st.session_state.policy1_name = normalize_policy_name(st.session_state.text1, "Policy 1")
-        st.session_state.policy2_name = normalize_policy_name(st.session_state.text2, "Policy 2")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.image(image, caption="Uploaded Car Image", use_column_width=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.session_state.summary1 and st.session_state.summary2:
-        st.subheader("📌 Policy Summaries")
-        st.markdown("### Policy 1")
-        st.write(st.session_state.summary1)
-        st.markdown("### Policy 2")
-        st.write(st.session_state.summary2)
+    with st.spinner("🔍 Detecting car..."):
+        if detect_car(img_path, car_detector):
+            st.markdown('<div class="success-box">✅ Car detected!</div>', unsafe_allow_html=True)
+            st.session_state.claim_data['car_detected'] = True
+        else:
+            st.markdown('<div class="error-box">❌ No car detected.</div>', unsafe_allow_html=True)
+            st.session_state.claim_data['car_detected'] = False
 
-        # ----------- Comparison -----------
-        if st.button("Compare Policies"):
-            m1 = get_three_metrics(st.session_state.policy1_name, st.session_state.text1)
-            m2 = get_three_metrics(st.session_state.policy2_name, st.session_state.text2)
-            rows = []
-            for attr in ["Sum Insured", "Waiting Period", "Claim Settlement Ratio"]:
-                rows.append({
-                    "Attribute": attr,
-                    st.session_state.policy1_name: m1.get(attr, ""),
-                    st.session_state.policy2_name: m2.get(attr, "")
-                })
-            st.session_state.comparison = pd.DataFrame(rows)
+    if st.session_state.claim_data.get('car_detected'):
+        with st.spinner("🔬 Analyzing damage..."):
+            try:
+                damage_label, confidence = classify_damage(img_path, damage_processor, damage_classifier)
+                st.session_state.claim_data['detected_damage'] = damage_label
+                st.session_state.claim_data['confidence'] = confidence
 
-        if isinstance(st.session_state.comparison, pd.DataFrame):
-            st.subheader("📊 Policy Comparison Table")
-            st.table(st.session_state.comparison)
+                st.markdown(f"""
+                <div class="card">
+                    <h3 style='color:#0078d4;'>🔧 {damage_label.title()}</h3>
+                    <div style='display:flex; justify-content:space-around;'>
+                        <div class='metric-card'><div class='metric-label'>Confidence</div><div class='metric-value'>{confidence:.2f}</div></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            except Exception as e:
+                st.markdown(f'<div class="error-box">❌ Error: {e}</div>', unsafe_allow_html=True)
 
-            # ----------- Visualizations -----------
-            m1 = get_three_metrics(st.session_state.policy1_name, st.session_state.text1)
-            m2 = get_three_metrics(st.session_state.policy2_name, st.session_state.text2)
+# -------------------------------
+# Severity
+if st.session_state.claim_data.get('detected_damage'):
+    severity = get_severity(st.session_state.claim_data['detected_damage'])
+    st.markdown(f"""
+    <div class='metric-card' style='background:#fff3cd; border:1px solid #ffeaa7;'>
+        <div class='metric-label'>⚠️ Severity</div>
+        <div class='metric-value' style='color:#d39e00;'>{severity}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-            metrics_df = pd.DataFrame([
-                {"Policy": st.session_state.policy1_name,
-                 "Sum Insured": m1.get("Sum Insured"),
-                 "Waiting Period": m1.get("Waiting Period"),
-                 "Claim Settlement Ratio": m1.get("Claim Settlement Ratio")},
-                {"Policy": st.session_state.policy2_name,
-                 "Sum Insured": m2.get("Sum Insured"),
-                 "Waiting Period": m2.get("Waiting Period"),
-                 "Claim Settlement Ratio": m2.get("Claim Settlement Ratio")},
-            ])
-            st.session_state.metrics_df = metrics_df
+# -------------------------------
+# Step 2: Upload Policy
+st.markdown('<div class="step-header">📄 Upload Insurance Policy</div>', unsafe_allow_html=True)
+uploaded_policy = st.file_uploader("PDF or Image", type=["pdf", "jpg", "jpeg", "png"], key="pol_up")
 
-            st.subheader("📈 Number Visualization")
-            metric_choice = st.selectbox(
-                "Select a metric to visualize",
-                options=["Sum Insured", "Waiting Period", "Claim Settlement Ratio"],
-                index=0
-            )
-            plot_df = st.session_state.metrics_df.copy()
-            plot_df["Value"] = plot_df[metric_choice].apply(lambda v: to_number_for_plot(v, metric_choice))
-            st.dataframe(st.session_state.metrics_df)
+if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+    ext = uploaded_policy.name.split(".")[-1].lower()
+    path = os.path.join(UPLOAD_FOLDER_POLICIES, f"{uuid.uuid4()}.{ext}")
+    with open(path, "wb") as f:
+        f.write(uploaded_policy.read())
+    st.session_state.claim_data['policy_path'] = path
 
-            if plot_df["Value"].isna().all():
-                st.warning("Could not prepare numeric values for the selected metric.")
-            else:
-                fig, ax = plt.subplots()
-                ax.bar(plot_df["Policy"], plot_df["Value"])
-                if metric_choice == "Sum Insured":
-                    ax.set_ylabel("Sum Insured (in Lakh)")
-                elif metric_choice == "Waiting Period":
-                    ax.set_ylabel("Waiting Period (Days)")
-                else:
-                    ax.set_ylabel("Claim Settlement Ratio (%)")
-                ax.set_title(f"Comparison of {metric_choice}")
-                st.pyplot(fig)
+    with st.spinner("📄 Extracting policy..."):
+        try:
+            raw = extract_text_from_pdf(path) if ext == "pdf" else extract_text_from_image(path)
+            covered = parse_policy_text(raw)
+            st.session_state.claim_data['covered_items'] = covered
 
-        # ----------- Q&A (persistent multi-question mode) -----------
-        if st.button("Ask Gemini (Q&A)"):
-            st.session_state.qa_mode = True
+            st.markdown(f"""
+            <div class='card'>
+                <h4>🛡️ Policy Covers</h4>
+                <p>{', '.join(covered) if covered else 'None detected'}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        except Exception as e:
+            st.markdown(f'<div class="error-box">📄 Error: {e}</div>', unsafe_allow_html=True)
 
-        if st.session_state.qa_mode:
-            st.subheader("💬 Gemini Q&A")
-            with st.form("qa_form", clear_on_submit=True):
-                user_q = st.text_input("Ask a question about these policies:", key="qa_input")
-                submitted = st.form_submit_button("Get Answer")
+# -------------------------------
+# Step 3: Claim Assessment
+if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+    st.markdown('<div class="step-header">💰 Claim Assessment</div>', unsafe_allow_html=True)
 
-            if submitted and user_q:
-                ans = gemini_generate(
-                    f"""You are an insurance policy expert. 
-Answer the following user question concisely based only on the given policies.
+    detected = st.session_state.claim_data['detected_damage']
+    covered_items = st.session_state.claim_data.get('covered_items', [])
+    is_covered = detected in covered_items
 
-Policy 1:
-{st.session_state.text1[:8000]}
+    items, _ = estimate_cost([detected])
+    # Recalculate covered status
+    covered_items_set = set(covered_items)
+    covered_amount = sum(i['cost'] for i in items if i['damage'] in covered_items_set)
 
-Policy 2:
-{st.session_state.text2[:8000]}
+    col1, col2, col3 = st.columns(3)
+    col1.markdown(f"<div class='metric-card'><div class='metric-label'>Damage</div><div class='metric-value'>{detected.title()}</div></div>", unsafe_allow_html=True)
+    col2.markdown(f"<div class='metric-card'><div class='metric-label'>Covered?</div><div class='metric-value' style='color:{'green' if is_covered else 'red'};'>{'✅' if is_covered else '❌'}</div></div>", unsafe_allow_html=True)
+    col3.markdown(f"<div class='metric-card'><div class='metric-label'>Approved</div><div class='metric-value'>${covered_amount}</div></div>", unsafe_allow_html=True)
 
-Question:
-{user_q}
-"""
-                )
-                st.session_state.qa_history.append((user_q, ans))
+    df = pd.DataFrame([
+        {"Type": i['damage'], "Covered": "✅ Yes" if i['damage'] in covered_items_set else "❌ No", "Cost": f"${i['cost']}"}
+        for i in items
+    ])
+    st.dataframe(df.style.applymap(lambda v: 'color: green;' if v=="✅ Yes" else ('color: red;' if v=="❌ No" else ''), subset=['Covered']))
 
-            if st.session_state.qa_history:
-                for i, (q, a) in enumerate(reversed(st.session_state.qa_history), 1):
-                    st.markdown(f"**Q{i}: {q}**")
-                    st.write(a)
-                    st.markdown("---")
+    if not is_covered:
+        st.markdown(f'<div class="info-box">ℹ️ <b>Reason:</b> {detected} not covered.</div>', unsafe_allow_html=True)
 
+    with st.expander("🧾 Itemized Bill"):
+        for i in items:
+            status = "Covered ✅" if i['damage'] in covered_items_set else "Not Covered ❌"
+            st.markdown(f"- **{i['damage'].title()}**: ${i['cost']} → {status}")
+
+# -------------------------------
+# Step 4: AI Assistant with Voice
+if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.get('policy_path'):
+    st.markdown('<div class="step-header">🧠 Ask AI Assistant (हिंदी/English)</div>', unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class='info-box'>
+        💬 Type or click 🎙️ to speak. Click 🛑 to stop speaking.
+    </div>
+    """, unsafe_allow_html=True)
+
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+
+        # Chat display
+        chat_container = st.container()
+        with chat_container:
+            for msg in st.session_state.chat_history:
+                with st.chat_message(msg["role"]):
+                    st.write(msg["parts"][0])
+
+        # Unified input
+        txt_col, voice_col = st.columns([12, 1], vertical_alignment="bottom", gap="small")
+        with voice_col:
+            voice_clicked = st.button("🎙️", key="voice", help="Speak your question")
+        with txt_col:
+            user_input = st.chat_input("Type or click 🎙️ to speak...")
+
+        # Handle voice
+        if voice_clicked:
+            import speech_recognition as sr
+            r = sr.Recognizer()
+            with sr.Microphone() as source:
+                with st.spinner("🎙️ Listening..."):
+                    try:
+                        r.adjust_for_ambient_noise(source, duration=0.5)
+                        audio = r.listen(source, timeout=3, phrase_time_limit=5)
+                        text = r.recognize_google(audio, language="en-US,hi-IN")
+                        user_input = text.strip()
+                        st.session_state.last_input_mode = "voice"
+                        st.session_state.temp_voice_input = user_input
+                        st.success(f"✅: {user_input}")
+                    except Exception as e:
+                        st.warning(f"🎙️: {e}")
+
+        if user_input or st.session_state.get("temp_voice_input"):
+            if st.session_state.get("temp_voice_input"):
+                user_input = st.session_state.pop("temp_voice_input")
+
+            def detect_lang(t): return 'hi' if any('\u0900' <= c <= '\u097f' for c in t) else 'en'
+            lang = detect_lang(user_input)
+
+            with st.chat_message("user"): st.write(user_input)
+            st.session_state.chat_history.append({"role": "user", "parts": [user_input]})
+
+            with st.spinner("🧠 Thinking..."):
+                try:
+                    context = "\n".join([
+                        f"- Damage: {st.session_state.claim_data.get('detected_damage')}",
+                        f"- Covered: {', '.join(st.session_state.claim_data.get('covered_items', []))}",
+                        f"- Policy: {extract_text_from_pdf(st.session_state.claim_data['policy_path'])[:3000]}..." if st.session_state.claim_data.get('policy_path') else ""
+                    ])
+
+                    img = Image.open(st.session_state.claim_data['image_path']) if st.session_state.claim_data.get('image_path') else None
+                    prompt = f"{context}\n\nUser: {user_input}\n\nRespond in {'Hindi' if lang=='hi' else 'English'}. Be accurate."
+
+                    if img:
+                        response = model.generate_content([prompt, img])
+                    else:
+                        response = model.generate_content([prompt])
+
+                    answer = response.text or ("मैं नहीं बता सकता।" if lang == 'hi' else "I can't answer that.")
+
+                    with st.chat_message("assistant"): st.write(answer)
+                    st.session_state.chat_history.append({"role": "model", "parts": [answer]})
+
+                    # TTS if voice input
+                    if st.session_state.get("last_input_mode") == "voice":
+                        from gtts import gTTS
+                        import pygame
+                        import tempfile
+                        import os
+                        try:
+                            tts = gTTS(text=answer, lang=lang, slow=False)
+                            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+                            tts.save(temp_file.name)
+                            temp_file.close()
+
+                            st.session_state.is_speaking = True
+                            pygame.mixer.init()
+                            pygame.mixer.music.load(temp_file.name)
+                            pygame.mixer.music.play()
+
+                            with st.container():
+                                c1, c2 = st.columns([10, 1])
+                                with c1: st.info("🔊 AI is speaking...")
+                                with c2:
+                                    if st.button("🛑", help="Stop"):
+                                        pygame.mixer.music.stop()
+                                        st.session_state.is_speaking = False
+                                        st.rerun()
+
+                            while st.session_state.is_speaking and pygame.mixer.music.get_busy():
+                                time.sleep(0.1)
+                            st.session_state.is_speaking = False
+                            os.unlink(temp_file.name)
+                        except Exception as e:
+                            st.warning(f"🔊 TTS error: {e}")
+
+                    st.session_state.last_input_mode = "text"
+
+                except Exception as e:
+                    st.error(f"❌ Gemini: {e}")
+
+    except Exception as e:
+        st.error(f"❌ AI Assistant: {e}")
+
+# -------------------------------
+# PDF Export Only (No Reset Button)
+if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+    st.markdown("---")
+    st.markdown("### 📎 Export Report")
+
+    if st.button("📥 Generate PDF Report"):
+        with st.spinner("📄 Generating..."):
+            pdf_path = generate_pdf_report(st.session_state.claim_data, st.session_state.chat_history)
+            with open(pdf_path, "rb") as f:
+                st.download_button("⬇️ Download Report", f, "AutoClaim_Report.pdf", "application/pdf")
+
+# Footer
+st.markdown("<hr>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center; color:#888;'>💡 Powered by YOLOv8, Transformers & Gemini AI</p>", unsafe_allow_html=True)

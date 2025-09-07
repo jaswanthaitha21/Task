@@ -1,0 +1,1 @@
+https://jaswanth-model-bucket-2025-09-07.s3.ap-south-1.amazonaws.com/car_damage/model.safetensors?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIARNIVZZNGAJ2IFNVS%2F20250907%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20250907T111720Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=fd88083e2698edb3dfa57f4efa1b4c3c3c73bc66676ec72623547797ce36e038

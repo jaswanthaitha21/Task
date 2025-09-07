@@ -8,9 +8,10 @@ import time
 import google.generativeai as genai
 from fpdf import FPDF
 from io import BytesIO
+import datetime
 
 # Import your modules
-from models import load_car_detector, load_damage_model, detect_car, classify_damage
+from models import load_car_detector, load_damage_model, detect_car, classify_damage, detect_and_annotate_car
 from utils import extract_text_from_image, extract_text_from_pdf, parse_policy_text, estimate_cost, get_severity
 
 # -------------------------------
@@ -25,7 +26,7 @@ os.makedirs(UPLOAD_FOLDER_IMAGES, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER_POLICIES, exist_ok=True)
 
 # -------------------------------
-# ✅ PDF REPORT GENERATION FUNCTION (Fixed: Correct Covered Status)
+# ✅ PDF REPORT GENERATION FUNCTION (Updated for Multi-Damage)
 def generate_pdf_report(claim_data, chat_history=None):
     from fpdf import FPDF
     import os
@@ -42,26 +43,37 @@ def generate_pdf_report(claim_data, chat_history=None):
     pdf.cell(0, 15, "AutoClaim: Insurance Claim Report", ln=True, align="C", fill=True)
     pdf.ln(10)
 
+    # Claim ID & Timestamp
+    claim_id = claim_data.get('claim_id', 'N/A')
+    submitted_at = claim_data.get('submitted_at', 'N/A')
+    pdf.set_font("Arial", size=10)
+    pdf.cell(0, 8, f"Claim ID: {claim_id} | Submitted: {submitted_at}", ln=True)
+    pdf.ln(5)
+
     # Claim Summary
     pdf.set_font("Arial", size=12)
-    if claim_data.get('detected_damage'):
-        pdf.cell(0, 10, f"Detected Damage: {claim_data['detected_damage'].title()}", ln=True)
-    if claim_data.get('confidence'):
-        pdf.cell(0, 10, f"Confidence: {claim_data['confidence']:.2f}", ln=True)
+    detected_damages = claim_data.get('detected_damages', [])
+    confidences = claim_data.get('confidences', [])
+
+    for i, damage in enumerate(detected_damages):
+        conf = confidences[i] if i < len(confidences) else 0.0
+        pdf.cell(0, 10, f"Damage {i+1}: {damage.title()} (Confidence: {conf:.2f})", ln=True)
+
     if claim_data.get('covered_items'):
         covered = ", ".join([c.title() for c in claim_data['covered_items']])
         pdf.cell(0, 10, f"Policy Covers: {covered}", ln=True)
     pdf.ln(5)
 
     # Claim Decision
-    detected = claim_data.get('detected_damage')
+    detected_damages = claim_data.get('detected_damages', [])
     covered_items = claim_data.get('covered_items', [])
-    is_covered = detected in covered_items if detected else False
+    covered_items_set = set(covered_items)
+    is_any_covered = any(d in covered_items_set for d in detected_damages)
 
     pdf.set_font("Arial", 'B', 12)
-    status_color = (0, 150, 0) if is_covered else (180, 0, 0)
+    status_color = (0, 150, 0) if is_any_covered else (180, 0, 0)
     pdf.set_text_color(*status_color)
-    pdf.cell(0, 10, f"Claim Status: {'APPROVED' if is_covered else 'PARTIALLY APPROVED/REJECTED'}", ln=True)
+    pdf.cell(0, 10, f"Claim Status: {'APPROVED' if is_any_covered else 'PARTIALLY APPROVED/REJECTED'}", ln=True)
     pdf.set_text_color(0, 0, 0)
     pdf.ln(10)
 
@@ -74,9 +86,14 @@ def generate_pdf_report(claim_data, chat_history=None):
     pdf.cell(40, 8, "Estimated Cost", border=1)
     pdf.ln(8)
 
-    items, _ = estimate_cost([claim_data.get('detected_damage')] if claim_data.get('detected_damage') else [])
+    # Estimate cost for all detected damages
+    detected_damages = claim_data.get('detected_damages', [])
+    if not detected_damages and claim_data.get('detected_damage'):
+        detected_damages = [claim_data['detected_damage']]
 
-    # Recalculate 'covered' based on actual policy
+    items, _ = estimate_cost(detected_damages)
+
+    # Recalculate covered status
     covered_items_set = set(covered_items)
     covered_amount = 0
     for item in items:
@@ -97,10 +114,11 @@ def generate_pdf_report(claim_data, chat_history=None):
     pdf.cell(40, 10, f"${covered_amount}", border=0, ln=True)
     pdf.ln(10)
 
-    # Car Image
-    if claim_data.get('image_path') and os.path.exists(claim_data['image_path']):
+    # Car Image (annotated if available)
+    image_path = claim_data.get('annotated_image_path') or claim_data.get('image_path')
+    if image_path and os.path.exists(image_path):
         try:
-            img = PILImage.open(claim_data['image_path'])
+            img = PILImage.open(image_path)
             temp_img = "temp_report_image.jpg"
             img.save(temp_img, "JPEG", quality=85)
             pdf.image(temp_img, x=10, w=180)
@@ -190,9 +208,14 @@ if uploaded_image:
     img_path = os.path.join(UPLOAD_FOLDER_IMAGES, f"{uuid.uuid4()}.jpg")
     image.save(img_path)
     st.session_state.claim_data['image_path'] = img_path
+    st.session_state.claim_data['claim_id'] = f"CLAIM-{uuid.uuid4().hex[:8].upper()}"
+    st.session_state.claim_data['submitted_at'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.image(image, caption="Uploaded Car Image", use_column_width=True)
+    # Display annotated image if available, else original
+    display_img_path = st.session_state.claim_data.get('annotated_image_path', img_path)
+    display_image = Image.open(display_img_path)
+    st.image(display_image, caption="Detected Car & Damage Area", use_column_width=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
     with st.spinner("🔍 Detecting car..."):
@@ -206,29 +229,40 @@ if uploaded_image:
     if st.session_state.claim_data.get('car_detected'):
         with st.spinner("🔬 Analyzing damage..."):
             try:
-                damage_label, confidence = classify_damage(img_path, damage_processor, damage_classifier)
-                st.session_state.claim_data['detected_damage'] = damage_label
-                st.session_state.claim_data['confidence'] = confidence
+                # Get multiple damages
+                damage_labels, confidences = classify_damage(img_path, damage_processor, damage_classifier)
+                st.session_state.claim_data['detected_damages'] = damage_labels
+                st.session_state.claim_data['confidences'] = confidences
+                st.session_state.claim_data['detected_damage'] = damage_labels[0] if damage_labels else "unknown"
+                st.session_state.claim_data['confidence'] = confidences[0] if confidences else 0.0
 
-                st.markdown(f"""
-                <div class="card">
-                    <h3 style='color:#0078d4;'>🔧 {damage_label.title()}</h3>
-                    <div style='display:flex; justify-content:space-around;'>
-                        <div class='metric-card'><div class='metric-label'>Confidence</div><div class='metric-value'>{confidence:.2f}</div></div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                # Annotate image
+                annotated_img_path = detect_and_annotate_car(img_path, car_detector)
+                st.session_state.claim_data['annotated_image_path'] = annotated_img_path
+
+                # Display damages
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                for i, (label, conf) in enumerate(zip(damage_labels, confidences)):
+                    color = "#28a745" if i == 0 else "#6c757d"
+                    st.markdown(f"<h4 style='color:{color}; margin:0;'>🔧 {label.title()} <small>({conf:.2f})</small></h4>", unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
             except Exception as e:
                 st.markdown(f'<div class="error-box">❌ Error: {e}</div>', unsafe_allow_html=True)
 
 # -------------------------------
-# Severity
-if st.session_state.claim_data.get('detected_damage'):
-    severity = get_severity(st.session_state.claim_data['detected_damage'])
+# Severity (Max Severity from all damages)
+if st.session_state.claim_data.get('detected_damages'):
+    detected_damages = st.session_state.claim_data['detected_damages']
+    severities = [get_severity(d) for d in detected_damages]
+    # Define severity order for comparison
+    severity_order = ["Slightly Damaged", "Moderately Damaged", "Severely Damaged"]
+    max_severity = max(severities, key=lambda x: severity_order.index(x) if x in severity_order else 0)
+
     st.markdown(f"""
     <div class='metric-card' style='background:#fff3cd; border:1px solid #ffeaa7;'>
-        <div class='metric-label'>⚠️ Severity</div>
-        <div class='metric-value' style='color:#d39e00;'>{severity}</div>
+        <div class='metric-label'>⚠️ Max Severity</div>
+        <div class='metric-value' style='color:#d39e00;'>{max_severity}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -237,7 +271,7 @@ if st.session_state.claim_data.get('detected_damage'):
 st.markdown('<div class="step-header">📄 Upload Insurance Policy</div>', unsafe_allow_html=True)
 uploaded_policy = st.file_uploader("PDF or Image", type=["pdf", "jpg", "jpeg", "png"], key="pol_up")
 
-if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+if uploaded_policy and st.session_state.claim_data.get('detected_damages'):
     ext = uploaded_policy.name.split(".")[-1].lower()
     path = os.path.join(UPLOAD_FOLDER_POLICIES, f"{uuid.uuid4()}.{ext}")
     with open(path, "wb") as f:
@@ -265,30 +299,41 @@ if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
 
 # -------------------------------
 # Step 3: Claim Assessment
-if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+if uploaded_policy and st.session_state.claim_data.get('detected_damages'):
     st.markdown('<div class="step-header">💰 Claim Assessment</div>', unsafe_allow_html=True)
 
-    detected = st.session_state.claim_data['detected_damage']
+    detected_damages = st.session_state.claim_data.get('detected_damages', [])
     covered_items = st.session_state.claim_data.get('covered_items', [])
-    is_covered = detected in covered_items
-
-    items, _ = estimate_cost([detected])
     covered_items_set = set(covered_items)
-    covered_amount = sum(i['cost'] for i in items if i['damage'] in covered_items_set)
 
+    # Calculate covered amount
+    items, _ = estimate_cost(detected_damages)
+    covered_amount = sum(i['cost'] for i in items if i['damage'] in covered_items_set)
+    is_any_covered = any(d in covered_items_set for d in detected_damages)
+
+    # Metrics
     col1, col2, col3 = st.columns(3)
-    col1.markdown(f"<div class='metric-card'><div class='metric-label'>Damage</div><div class='metric-value'>{detected.title()}</div></div>", unsafe_allow_html=True)
-    col2.markdown(f"<div class='metric-card'><div class='metric-label'>Covered?</div><div class='metric-value' style='color:{'green' if is_covered else 'red'};'>{'✅' if is_covered else '❌'}</div></div>", unsafe_allow_html=True)
+    primary_damage = detected_damages[0] if detected_damages else "N/A"
+    col1.markdown(f"<div class='metric-card'><div class='metric-label'>Primary Damage</div><div class='metric-value'>{primary_damage.title()}</div></div>", unsafe_allow_html=True)
+    col2.markdown(f"<div class='metric-card'><div class='metric-label'>Any Covered?</div><div class='metric-value' style='color:{'green' if is_any_covered else 'red'};'>{'✅' if is_any_covered else '❌'}</div></div>", unsafe_allow_html=True)
     col3.markdown(f"<div class='metric-card'><div class='metric-label'>Approved</div><div class='metric-value'>${covered_amount}</div></div>", unsafe_allow_html=True)
 
+    # Dataframe
     df = pd.DataFrame([
-        {"Type": i['damage'], "Covered": "✅ Yes" if i['damage'] in covered_items_set else "❌ No", "Cost": f"${i['cost']}"}
+        {
+            "Type": i['damage'].title(),
+            "Covered": "✅ Yes" if i['damage'] in covered_items_set else "❌ No",
+            "Cost": f"${i['cost']}"
+        }
         for i in items
     ])
-    st.dataframe(df.style.applymap(lambda v: 'color: green;' if v=="✅ Yes" else ('color: red;' if v=="❌ No" else ''), subset=['Covered']))
+    st.dataframe(df.style.applymap(
+        lambda v: 'color: green;' if v == "✅ Yes" else ('color: red;' if v == "❌ No" else ''),
+        subset=['Covered']
+    ))
 
-    if not is_covered:
-        st.markdown(f'<div class="info-box">ℹ️ <b>Reason:</b> {detected} not covered.</div>', unsafe_allow_html=True)
+    if not is_any_covered:
+        st.markdown(f'<div class="info-box">ℹ️ <b>Reason:</b> None of the detected damages are covered.</div>', unsafe_allow_html=True)
 
     with st.expander("🧾 Itemized Bill"):
         for i in items:
@@ -354,10 +399,17 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
             with st.spinner("🧠 Thinking..."):
                 try:
                     context_parts = [
-                        f"- Detected Damage: {st.session_state.claim_data.get('detected_damage', 'N/A')}",
-                        f"- Confidence: {st.session_state.claim_data.get('confidence', 0):.2f}",
-                        f"- Covered Items: {', '.join(st.session_state.claim_data.get('covered_items', []))}"
+                        f"- Claim ID: {st.session_state.claim_data.get('claim_id', 'N/A')}",
+                        f"- Submitted: {st.session_state.claim_data.get('submitted_at', 'N/A')}",
                     ]
+
+                    detected_damages = st.session_state.claim_data.get('detected_damages', [])
+                    confidences = st.session_state.claim_data.get('confidences', [])
+                    for i, d in enumerate(detected_damages):
+                        conf = confidences[i] if i < len(confidences) else 0.0
+                        context_parts.append(f"- Damage {i+1}: {d} (Conf: {conf:.2f})")
+
+                    context_parts.append(f"- Covered Items: {', '.join(st.session_state.claim_data.get('covered_items', []))}")
 
                     # Add policy text snippet if available
                     if st.session_state.claim_data.get('policy_path'):
@@ -369,7 +421,8 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
 
                     context = "\n".join(context_parts)
 
-                    img = Image.open(st.session_state.claim_data['image_path']) if st.session_state.claim_data.get('image_path') else None
+                    img_path = st.session_state.claim_data.get('annotated_image_path') or st.session_state.claim_data.get('image_path')
+                    img = Image.open(img_path) if img_path else None
                     prompt = f"{context}\n\nUser: {user_input}\n\nRespond in {'Hindi' if lang=='hi' else 'English'}. Be accurate and helpful."
 
                     if img:
@@ -426,7 +479,7 @@ if st.session_state.claim_data.get('image_path') or st.session_state.claim_data.
 
 # -------------------------------
 # PDF Export Only
-if uploaded_policy and st.session_state.claim_data.get('detected_damage'):
+if uploaded_policy and st.session_state.claim_data.get('detected_damages'):
     st.markdown("---")
     st.markdown("### 📎 Export Report")
 

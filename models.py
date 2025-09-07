@@ -31,7 +31,7 @@ def detect_car(image_path, model):
                 return True
     return False
 
-# Classify damage type
+# Classify damage type — NOW RETURNS MULTIPLE
 def classify_damage(image_path, processor, model):
     image = Image.open(image_path).convert("RGB")
     inputs = processor(images=image, return_tensors="pt")
@@ -39,8 +39,47 @@ def classify_damage(image_path, processor, model):
     with torch.no_grad():
         outputs = model(**inputs)
         logits = outputs.logits
-        predicted_class_idx = logits.argmax(-1).item()
-        label = model.config.id2label[predicted_class_idx]
-        confidence = torch.softmax(logits, dim=1)[0][predicted_class_idx].item()
+        probs = torch.softmax(logits, dim=1)[0]  # Get probabilities
 
-    return label.lower(), confidence
+        # Get top 3 predictions
+        topk = torch.topk(logits, k=3)
+        labels = []
+        confidences = []
+
+        for i in range(topk.indices.size(1)):
+            idx = topk.indices[0][i].item()
+            conf = probs[idx].item()
+            if conf > 0.3:  # Confidence threshold
+                label = model.config.id2label[idx].lower()
+                labels.append(label)
+                confidences.append(conf)
+
+        if not labels:  # Fallback to top-1 if none above threshold
+            idx = logits.argmax(-1).item()
+            label = model.config.id2label[idx].lower()
+            conf = probs[idx].item()
+            labels = [label]
+            confidences = [conf]
+
+    return labels, confidences  # Return lists now
+
+# NEW: Annotate car with bounding box
+def detect_and_annotate_car(image_path, model, save_annotated=True):
+    """
+    Detect car and return annotated image path with bounding box.
+    Later, replace with damage-specific detector.
+    """
+    results = model(image_path)
+    annotated_image = None
+
+    for r in results:
+        # Plot bounding boxes on image
+        im_array = r.plot()  # returns numpy array (BGR)
+        annotated_image = Image.fromarray(im_array[..., ::-1])  # Convert BGR to RGB
+
+    if annotated_image and save_annotated:
+        annotated_path = image_path.replace(".jpg", "_annotated.jpg")
+        annotated_image.save(annotated_path)
+        return annotated_path
+
+    return image_path  # fallback

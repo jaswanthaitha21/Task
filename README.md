@@ -1,1 +1,32 @@
-https://jaswanth-model-bucket-2025-09-07.s3.ap-south-1.amazonaws.com/car_damage/model.safetensors?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIARNIVZZNGAJ2IFNVS%2F20250907%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20250907T111720Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Signature=fd88083e2698edb3dfa57f4efa1b4c3c3c73bc66676ec72623547797ce36e038
+Extract all possible key-value pairs from the given invoice text. 
+Return the result strictly in valid JSON format with the following structure if available:
+{
+  "invoice": {
+    "client_name": "",
+    "client_address": "",
+    "seller_name": "",
+    "seller_address": "",
+    "invoice_number": "",
+    "invoice_date": "",
+    "due_date": ""
+  },
+  "items": [
+    {
+      "description": "",
+      "quantity": "",
+      "total_price": ""
+    }
+  ],
+  "subtotal": {
+    "tax": "",
+    "discount": "",
+    "total": ""
+  },
+  "payment_instructions": {
+    "due_date": "",
+    "bank_name": "",
+    "account_number": "",
+    "payment_method": ""
+  }
+}
+If any field is missing, return it as an empty string.

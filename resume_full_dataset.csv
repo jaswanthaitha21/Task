@@ -1,0 +1,401 @@
+input,expected_output
+"John Doe
+123 Main Street, City, Country
+Email: john.doe@example.com | Phone: +1-555-619-8415
+
+Professional Summary
+Experienced Data Scientist with 9 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Docker
+- PyTorch
+- HTML
+- CSS
+- REST APIs
+
+Work Experience
+Data Scientist at TechCorp (2018–2025)
+
+Education
+B.Sc. in Computer Science, University of Toronto
+","{'Name': 'John Doe', 'Email': 'john.doe@example.com', 'Phone': '+1-555-619-8415', 'Skills': ['Docker', 'PyTorch', 'HTML', 'CSS', 'REST APIs'], 'Role': 'Data Scientist', 'Experience': '9 years', 'Education': 'B.Sc. in Computer Science, University of Toronto', 'Work Experience': 'Data Scientist at TechCorp (2018–2025)'}"
+"Priya Sharma
+123 Main Street, City, Country
+Email: priya.sharma@example.com | Phone: +1-555-258-4498
+
+Professional Summary
+Experienced Data Scientist with 4 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Node.js
+- Pandas
+- CSS
+- Tableau
+- Git
+
+Work Experience
+Data Scientist at AI Labs (2018–2025)
+
+Education
+M.Sc. in Data Science, MIT
+","{'Name': 'Priya Sharma', 'Email': 'priya.sharma@example.com', 'Phone': '+1-555-258-4498', 'Skills': ['Node.js', 'Pandas', 'CSS', 'Tableau', 'Git'], 'Role': 'Data Scientist', 'Experience': '4 years', 'Education': 'M.Sc. in Data Science, MIT', 'Work Experience': 'Data Scientist at AI Labs (2018–2025)'}"
+"Michael Smith
+123 Main Street, City, Country
+Email: michael.smith@example.com | Phone: +1-555-652-3382
+
+Professional Summary
+Experienced Backend Developer with 6 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- REST APIs
+- AWS
+- Node.js
+- Flask
+- Tableau
+
+Work Experience
+Backend Developer at GreenTech (2021–2025)
+
+Education
+B.Sc. in Computer Science, NUS
+","{'Name': 'Michael Smith', 'Email': 'michael.smith@example.com', 'Phone': '+1-555-652-3382', 'Skills': ['REST APIs', 'AWS', 'Node.js', 'Flask', 'Tableau'], 'Role': 'Backend Developer', 'Experience': '6 years', 'Education': 'B.Sc. in Computer Science, NUS', 'Work Experience': 'Backend Developer at GreenTech (2021–2025)'}"
+"Aisha Khan
+123 Main Street, City, Country
+Email: aisha.khan@example.com | Phone: +1-555-681-5449
+
+Professional Summary
+Experienced Software Engineer with 9 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- R
+- TensorFlow
+- JavaScript
+- Machine Learning
+- Node.js
+
+Work Experience
+Software Engineer at FinServe (2018–2022)
+
+Education
+B.E. in Electronics, University of Toronto
+","{'Name': 'Aisha Khan', 'Email': 'aisha.khan@example.com', 'Phone': '+1-555-681-5449', 'Skills': ['R', 'TensorFlow', 'JavaScript', 'Machine Learning', 'Node.js'], 'Role': 'Software Engineer', 'Experience': '9 years', 'Education': 'B.E. in Electronics, University of Toronto', 'Work Experience': 'Software Engineer at FinServe (2018–2022)'}"
+"David Lee
+123 Main Street, City, Country
+Email: david.lee@example.com | Phone: +1-555-916-6622
+
+Professional Summary
+Experienced Mobile App Developer with 10 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- SQL
+- Git
+- C++
+- JavaScript
+- Deep Learning
+
+Work Experience
+Mobile App Developer at DataSolutions (2017–2022)
+
+Education
+M.Sc. in Data Science, NUS
+","{'Name': 'David Lee', 'Email': 'david.lee@example.com', 'Phone': '+1-555-916-6622', 'Skills': ['SQL', 'Git', 'C++', 'JavaScript', 'Deep Learning'], 'Role': 'Mobile App Developer', 'Experience': '10 years', 'Education': 'M.Sc. in Data Science, NUS', 'Work Experience': 'Mobile App Developer at DataSolutions (2017–2022)'}"
+"Sara Johnson
+123 Main Street, City, Country
+Email: sara.johnson@example.com | Phone: +1-555-727-5073
+
+Professional Summary
+Experienced Backend Developer with 10 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Django
+- PyTorch
+- HTML
+- AWS
+- React
+
+Work Experience
+Backend Developer at TechCorp (2017–2024)
+
+Education
+B.E. in Electronics, IIT Bombay
+","{'Name': 'Sara Johnson', 'Email': 'sara.johnson@example.com', 'Phone': '+1-555-727-5073', 'Skills': ['Django', 'PyTorch', 'HTML', 'AWS', 'React'], 'Role': 'Backend Developer', 'Experience': '10 years', 'Education': 'B.E. in Electronics, IIT Bombay', 'Work Experience': 'Backend Developer at TechCorp (2017–2024)'}"
+"Rahul Verma
+123 Main Street, City, Country
+Email: rahul.verma@example.com | Phone: +1-555-723-6441
+
+Professional Summary
+Experienced Cloud Architect with 8 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Tableau
+- Kubernetes
+- TensorFlow
+- Git
+- CSS
+
+Work Experience
+Cloud Architect at AI Labs (2015–2024)
+
+Education
+B.Tech in Information Technology, Harvard University
+","{'Name': 'Rahul Verma', 'Email': 'rahul.verma@example.com', 'Phone': '+1-555-723-6441', 'Skills': ['Tableau', 'Kubernetes', 'TensorFlow', 'Git', 'CSS'], 'Role': 'Cloud Architect', 'Experience': '8 years', 'Education': 'B.Tech in Information Technology, Harvard University', 'Work Experience': 'Cloud Architect at AI Labs (2015–2024)'}"
+"Emily Brown
+123 Main Street, City, Country
+Email: emily.brown@example.com | Phone: +1-555-819-8671
+
+Professional Summary
+Experienced Business Analyst with 6 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- JavaScript
+- Node.js
+- NLP
+- Tableau
+- Machine Learning
+
+Work Experience
+Business Analyst at InnovateX (2021–2025)
+
+Education
+M.Sc. in Data Science, Stanford University
+","{'Name': 'Emily Brown', 'Email': 'emily.brown@example.com', 'Phone': '+1-555-819-8671', 'Skills': ['JavaScript', 'Node.js', 'NLP', 'Tableau', 'Machine Learning'], 'Role': 'Business Analyst', 'Experience': '6 years', 'Education': 'M.Sc. in Data Science, Stanford University', 'Work Experience': 'Business Analyst at InnovateX (2021–2025)'}"
+"Carlos Garcia
+123 Main Street, City, Country
+Email: carlos.garcia@example.com | Phone: +1-555-350-3243
+
+Professional Summary
+Experienced Cloud Architect with 3 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- AWS
+- Flask
+- Git
+- NLP
+- TensorFlow
+
+Work Experience
+Cloud Architect at TechCorp (2020–2023)
+
+Education
+M.Tech in Artificial Intelligence, MIT
+","{'Name': 'Carlos Garcia', 'Email': 'carlos.garcia@example.com', 'Phone': '+1-555-350-3243', 'Skills': ['AWS', 'Flask', 'Git', 'NLP', 'TensorFlow'], 'Role': 'Cloud Architect', 'Experience': '3 years', 'Education': 'M.Tech in Artificial Intelligence, MIT', 'Work Experience': 'Cloud Architect at TechCorp (2020–2023)'}"
+"Ananya Gupta
+123 Main Street, City, Country
+Email: ananya.gupta@example.com | Phone: +1-555-278-8068
+
+Professional Summary
+Experienced Business Analyst with 3 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Node.js
+- AWS
+- Python
+- NLP
+- PyTorch
+
+Work Experience
+Business Analyst at TechCorp (2020–2024)
+
+Education
+B.Tech in Information Technology, Harvard University
+","{'Name': 'Ananya Gupta', 'Email': 'ananya.gupta@example.com', 'Phone': '+1-555-278-8068', 'Skills': ['Node.js', 'AWS', 'Python', 'NLP', 'PyTorch'], 'Role': 'Business Analyst', 'Experience': '3 years', 'Education': 'B.Tech in Information Technology, Harvard University', 'Work Experience': 'Business Analyst at TechCorp (2020–2024)'}"
+"Liam Wilson
+123 Main Street, City, Country
+Email: liam.wilson@example.com | Phone: +1-555-708-3125
+
+Professional Summary
+Experienced Data Scientist with 7 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Django
+- Git
+- Docker
+- Machine Learning
+- Tableau
+
+Work Experience
+Data Scientist at GreenTech (2020–2023)
+
+Education
+M.Tech in Artificial Intelligence, NYU
+","{'Name': 'Liam Wilson', 'Email': 'liam.wilson@example.com', 'Phone': '+1-555-708-3125', 'Skills': ['Django', 'Git', 'Docker', 'Machine Learning', 'Tableau'], 'Role': 'Data Scientist', 'Experience': '7 years', 'Education': 'M.Tech in Artificial Intelligence, NYU', 'Work Experience': 'Data Scientist at GreenTech (2020–2023)'}"
+"Sophia Patel
+123 Main Street, City, Country
+Email: sophia.patel@example.com | Phone: +1-555-726-3381
+
+Professional Summary
+Experienced Software Engineer with 9 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- TensorFlow
+- Node.js
+- NLP
+- Tableau
+- React
+
+Work Experience
+Software Engineer at EduSoft (2019–2023)
+
+Education
+MBA in Business Analytics, Harvard University
+","{'Name': 'Sophia Patel', 'Email': 'sophia.patel@example.com', 'Phone': '+1-555-726-3381', 'Skills': ['TensorFlow', 'Node.js', 'NLP', 'Tableau', 'React'], 'Role': 'Software Engineer', 'Experience': '9 years', 'Education': 'MBA in Business Analytics, Harvard University', 'Work Experience': 'Software Engineer at EduSoft (2019–2023)'}"
+"Ethan Clark
+123 Main Street, City, Country
+Email: ethan.clark@example.com | Phone: +1-555-659-1065
+
+Professional Summary
+Experienced Cloud Architect with 4 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- TensorFlow
+- Kubernetes
+- SQL
+- Java
+- C++
+
+Work Experience
+Cloud Architect at HealthAI (2019–2025)
+
+Education
+B.Sc. in Computer Science, MIT
+","{'Name': 'Ethan Clark', 'Email': 'ethan.clark@example.com', 'Phone': '+1-555-659-1065', 'Skills': ['TensorFlow', 'Kubernetes', 'SQL', 'Java', 'C++'], 'Role': 'Cloud Architect', 'Experience': '4 years', 'Education': 'B.Sc. in Computer Science, MIT', 'Work Experience': 'Cloud Architect at HealthAI (2019–2025)'}"
+"Olivia Adams
+123 Main Street, City, Country
+Email: olivia.adams@example.com | Phone: +1-555-977-7892
+
+Professional Summary
+Experienced Software Engineer with 8 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Docker
+- SQL
+- Python
+- Kubernetes
+- Django
+
+Work Experience
+Software Engineer at HealthAI (2019–2022)
+
+Education
+M.Sc. in Data Science, NUS
+","{'Name': 'Olivia Adams', 'Email': 'olivia.adams@example.com', 'Phone': '+1-555-977-7892', 'Skills': ['Docker', 'SQL', 'Python', 'Kubernetes', 'Django'], 'Role': 'Software Engineer', 'Experience': '8 years', 'Education': 'M.Sc. in Data Science, NUS', 'Work Experience': 'Software Engineer at HealthAI (2019–2022)'}"
+"Daniel Kim
+123 Main Street, City, Country
+Email: daniel.kim@example.com | Phone: +1-555-811-4147
+
+Professional Summary
+Experienced Frontend Developer with 2 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- JavaScript
+- React
+- Tableau
+- C++
+- Deep Learning
+
+Work Experience
+Frontend Developer at InnovateX (2021–2024)
+
+Education
+M.Tech in Artificial Intelligence, Cambridge University
+","{'Name': 'Daniel Kim', 'Email': 'daniel.kim@example.com', 'Phone': '+1-555-811-4147', 'Skills': ['JavaScript', 'React', 'Tableau', 'C++', 'Deep Learning'], 'Role': 'Frontend Developer', 'Experience': '2 years', 'Education': 'M.Tech in Artificial Intelligence, Cambridge University', 'Work Experience': 'Frontend Developer at InnovateX (2021–2024)'}"
+"Maya Iyer
+123 Main Street, City, Country
+Email: maya.iyer@example.com | Phone: +1-555-482-3913
+
+Professional Summary
+Experienced Full Stack Developer with 9 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Pandas
+- REST APIs
+- C++
+- Django
+- JavaScript
+
+Work Experience
+Full Stack Developer at InnovateX (2020–2024)
+
+Education
+M.Sc. in Data Science, NUS
+","{'Name': 'Maya Iyer', 'Email': 'maya.iyer@example.com', 'Phone': '+1-555-482-3913', 'Skills': ['Pandas', 'REST APIs', 'C++', 'Django', 'JavaScript'], 'Role': 'Full Stack Developer', 'Experience': '9 years', 'Education': 'M.Sc. in Data Science, NUS', 'Work Experience': 'Full Stack Developer at InnovateX (2020–2024)'}"
+"Noah Davis
+123 Main Street, City, Country
+Email: noah.davis@example.com | Phone: +1-555-407-9386
+
+Professional Summary
+Experienced Cloud Architect with 2 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Git
+- C++
+- SQL
+- REST APIs
+- Java
+
+Work Experience
+Cloud Architect at EduSoft (2019–2024)
+
+Education
+B.E. in Electronics, Cambridge University
+","{'Name': 'Noah Davis', 'Email': 'noah.davis@example.com', 'Phone': '+1-555-407-9386', 'Skills': ['Git', 'C++', 'SQL', 'REST APIs', 'Java'], 'Role': 'Cloud Architect', 'Experience': '2 years', 'Education': 'B.E. in Electronics, Cambridge University', 'Work Experience': 'Cloud Architect at EduSoft (2019–2024)'}"
+"Aarav Reddy
+123 Main Street, City, Country
+Email: aarav.reddy@example.com | Phone: +1-555-494-3285
+
+Professional Summary
+Experienced Full Stack Developer with 5 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- CSS
+- React
+- PyTorch
+- AWS
+- Tableau
+
+Work Experience
+Full Stack Developer at EduSoft (2017–2022)
+
+Education
+B.Sc. in Computer Science, Cambridge University
+","{'Name': 'Aarav Reddy', 'Email': 'aarav.reddy@example.com', 'Phone': '+1-555-494-3285', 'Skills': ['CSS', 'React', 'PyTorch', 'AWS', 'Tableau'], 'Role': 'Full Stack Developer', 'Experience': '5 years', 'Education': 'B.Sc. in Computer Science, Cambridge University', 'Work Experience': 'Full Stack Developer at EduSoft (2017–2022)'}"
+"Emma Martinez
+123 Main Street, City, Country
+Email: emma.martinez@example.com | Phone: +1-555-859-7977
+
+Professional Summary
+Experienced Full Stack Developer with 2 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- Kubernetes
+- REST APIs
+- React
+- C++
+- Python
+
+Work Experience
+Full Stack Developer at DataSolutions (2021–2025)
+
+Education
+M.Sc. in Data Science, NYU
+","{'Name': 'Emma Martinez', 'Email': 'emma.martinez@example.com', 'Phone': '+1-555-859-7977', 'Skills': ['Kubernetes', 'REST APIs', 'React', 'C++', 'Python'], 'Role': 'Full Stack Developer', 'Experience': '2 years', 'Education': 'M.Sc. in Data Science, NYU', 'Work Experience': 'Full Stack Developer at DataSolutions (2021–2025)'}"
+"Arjun Nair
+123 Main Street, City, Country
+Email: arjun.nair@example.com | Phone: +1-555-533-1823
+
+Professional Summary
+Experienced Data Scientist with 9 years of expertise in building scalable applications and solving complex problems.
+
+Skills
+- SQL
+- NLP
+- AWS
+- R
+- REST APIs
+
+Work Experience
+Data Scientist at EduSoft (2020–2024)
+
+Education
+B.E. in Electronics, University of Toronto
+","{'Name': 'Arjun Nair', 'Email': 'arjun.nair@example.com', 'Phone': '+1-555-533-1823', 'Skills': ['SQL', 'NLP', 'AWS', 'R', 'REST APIs'], 'Role': 'Data Scientist', 'Experience': '9 years', 'Education': 'B.E. in Electronics, University of Toronto', 'Work Experience': 'Data Scientist at EduSoft (2020–2024)'}"

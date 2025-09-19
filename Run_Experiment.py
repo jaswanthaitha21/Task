@@ -4,244 +4,125 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 from openai import OpenAI
-from PIL import Image
 import os
-import json
-from difflib import SequenceMatcher
-import Levenshtein
-
-# --- Try importing DeepEval safely ---
-DEEPEVAL_AVAILABLE = False
-try:
-    from deepeval.models.gpt_model import GPTModel
-    from deepeval.models.gemini_model import GeminiModel
-    from deepeval.metrics import AnswerRelevancyMetric, GEval
-    from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-    DEEPEVAL_AVAILABLE = True
-except Exception as e:
-    st.warning(f"⚠️ DeepEval not available: {e}. Only basic metrics will be computed.")
-
-# --- Custom KV Alignment ---
-def parse_kv(text):
-    if isinstance(text, dict): return text
-    try:
-        return json.loads(str(text))
-    except Exception:
-        pairs = {}
-        for line in str(text).splitlines():
-            if ":" in line:
-                parts = line.split(":", 1)
-                key = parts[0].strip().strip('"\'{}[]')
-                value = parts[1].strip().strip('"\'{}[]')
-                if key: pairs[key] = value
-        return pairs
-
-def kv_alignment_score(expected, actual):
-    exp_dict = parse_kv(expected)
-    act_dict = parse_kv(actual)
-    if not exp_dict: return 0.0
-    matched_keys = [k for k in exp_dict if k in act_dict]
-    key_score = len(matched_keys) / len(exp_dict)
-    value_scores = [
-        SequenceMatcher(None, str(exp_dict[k]), str(act_dict[k])).ratio()
-        for k in matched_keys
-    ]
-    value_score = sum(value_scores) / len(value_scores) if value_scores else 0.0
-    return round(0.5 * key_score + 0.5 * value_score, 2)
 
 
 def run_experiment_page():
     st.title("🧪 Run LLM Experiment")
 
-    # --- Session State ---
-    if 'evaluated_df' not in st.session_state:
-        st.session_state.evaluated_df = None
+    # --- Load Secrets ---
+    try:
+        GEMINI_API_KEY = st.secrets["gemini_api_key"]
+        OPENAI_API_KEY = st.secrets["openai_api_key"]
+    except Exception as e:
+        st.error(f"❌ Missing API keys in `.streamlit/secrets.toml`: {e}")
+        st.code('gemini_api_key = "your-key"\nopenai_api_key = "your-key"')
+        return
 
-    # --- Sidebar: Model Settings ---
-    st.sidebar.header("⚙️ Inference & Evaluation")
-    provider = st.sidebar.selectbox("Provider", ["gemini", "openai"], key="inf_provider")
-    api_key = st.sidebar.text_input(f"{provider.capitalize()} API Key", type="password", key=f"{provider}_key")
-    model_name = st.sidebar.selectbox(
-        "Model",
-        ["gemini-1.5-pro", "gemini-1.5-flash"] if provider == "gemini" else ["gpt-4o", "gpt-3.5-turbo"],
-        key=f"{provider}_model"
-    )
+    # --- Step 1: Select Provider & Model ---
+    st.write("### 1. Select LLM Provider and Model")
+    provider = st.selectbox("Provider", ["gemini", "openai"], format_func=str.capitalize)
+    model_options = {
+        "gemini": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.5-flash"],
+        "openai": ["gpt-4o", "gpt-3.5-turbo"]
+    }
+    model_name = st.selectbox("Model", model_options[provider])
 
-    # --- Judge LLM Selection ---
-    st.sidebar.subheader("⚖️ Judge LLM (for evaluation)")
-    judge_provider = st.sidebar.selectbox("Judge Provider", ["gemini", "openai"], key="judge_prov")
-    judge_api_key = st.sidebar.text_input(f"Judge API Key", type="password", key="judge_key")
-    judge_model_name = st.sidebar.selectbox(
-        "Judge Model",
-        ["gemini-1.5-pro", "gemini-1.5-flash"] if judge_provider == "gemini" else ["gpt-4o", "gpt-3.5-turbo"],
-        key="judge_model"
-    )
+    api_key = GEMINI_API_KEY if provider == "gemini" else OPENAI_API_KEY
 
-    # --- Master Prompt ---
-    st.write("### 🧩 Master Prompt (use `{input}`)")
+    # --- Step 2: Master Prompt with Dynamic Placeholders ---
+    st.write("### 2. Enter Master Prompt")
+    st.info("Use `{col_name}` to reference any column from your CSV.")
     master_prompt = st.text_area(
-        "Edit prompt:",
+        "Prompt Template",
         "Answer the question:\n\n{input}",
-        height=180,
-        key="master_prompt_edit"
+        height=180
     )
 
-    # --- Upload Dataset ---
-    uploaded_file = st.file_uploader("Upload CSV with `input`, `expected_output`", type="csv", key="run_upload")
+    # --- Step 3: Upload CSV ---
+    st.write("### 3. Upload Dataset CSV")
+    uploaded_file = st.file_uploader("Upload CSV", type="csv", key="run_csv")
 
     if not uploaded_file:
-        st.info("📤 Upload a dataset to begin.")
+        st.info("📤 Upload a CSV file to begin.")
         return
 
     try:
         df = pd.read_csv(uploaded_file)
-        required = {"input", "expected_output"}
-        if not required.issubset(df.columns):
-            st.error(f"CSV must have: {required}")
-            st.dataframe(df.head())
-            return
     except Exception as e:
-        st.error(f"Failed to read file: {e}")
+        st.error(f"❌ Failed to read CSV: {e}")
         return
 
-    # Show preview
-    with st.expander("🔍 Input Data Preview"):
-        st.dataframe(df)
+    st.write("#### Input Data Preview")
+    st.dataframe(df.head())
 
-    # --- Run Experiment Button ---
-    if st.button("🚀 Run Experiment & Evaluate", key="run_btn"):
-        if not api_key.strip():
-            st.warning("🔑 Enter inference API key.")
-            return
-        if not judge_api_key.strip():
-            st.warning("🔑 Enter judge API key.")
-            return
+    # Extract column names for placeholder help
+    cols = list(df.columns)
+    st.info(f"Your columns: {', '.join([f'`{c}`' for c in cols])}. Use them like `{{input}}`, `{{{cols[0]}}}` etc.")
 
-        with st.spinner("Running inference and LLM-based evaluation..."):
+    # --- Step 4: Run Experiment ---
+    if st.button("🚀 Run Experiment", key="run_exp"):
+        with st.spinner("Generating responses..."):
             results = []
 
-            # Initialize inference model
+            # Initialize client
             try:
                 if provider == "gemini":
                     genai.configure(api_key=api_key)
-                    inf_model = genai.GenerativeModel(model_name)
+                    model = genai.GenerativeModel(model_name)
                 else:
-                    inf_client = OpenAI(api_key=api_key)
+                    client = OpenAI(api_key=api_key)
             except Exception as e:
-                st.error(f"❌ Failed to initialize inference model: {e}")
+                st.error(f"❌ Failed to initialize {provider}: {e}")
                 return
 
-            # Initialize judge model for evaluation
-            judge_model = None
-            if DEEPEVAL_AVAILABLE:
-                try:
-                    if judge_provider == "gemini":
-                        judge_model = GeminiModel(model_name=judge_model_name, api_key=judge_api_key)
-                    else:
-                        judge_model = GPTModel(model_name=judge_model_name, api_key=judge_api_key)
-                except Exception as e:
-                    st.warning(f"Could not load judge model: {e}")
-
-            if judge_model is None:
-                st.warning("LLM-as-a-judge metrics will be skipped.")
-
             for _, row in df.iterrows():
-                inp = str(row["input"]).strip()
-                expected = str(row["expected_output"]).strip()
-
-                # Render prompt
+                # Render prompt using all available columns
                 try:
-                    prompt = master_prompt.format(input=inp)
-                except:
-                    prompt = master_prompt + "\n\n" + inp
+                    rendered_prompt = master_prompt.format(**row.astype(str))
+                except KeyError as e:
+                    missing = str(e)
+                    rendered_prompt = f"[ERROR: Missing column '{missing}' in prompt]"
+                except Exception as e:
+                    rendered_prompt = master_prompt + "\n\n" + str(row.iloc[0])
 
-                # --- Step 1: Generate actual_output ---
+                # Call LLM
                 actual = "[ERROR]"
                 try:
-                    if inp.lower().endswith(('.png', '.jpg', '.jpeg')) and os.path.exists(inp):
-                        if provider == "gemini":
-                            with open(inp, "rb") as f:
-                                response = inf_model.generate_content([prompt, {"mime_type": "image/jpeg", "data": f.read()}])
-                                actual = response.text
-                        else:
-                            actual = "Image input not supported."
+                    if provider == "gemini":
+                        response = model.generate_content(rendered_prompt)
+                        actual = response.text
                     else:
-                        if provider == "gemini":
-                            response = inf_model.generate_content(prompt)
-                            actual = response.text
-                        else:
-                            resp = inf_client.chat.completions.create(
-                                model=model_name,
-                                messages=[{"role": "user", "content": prompt}],
-                                max_tokens=1024
-                            )
-                            actual = resp.choices[0].message.content
+                        resp = client.chat.completions.create(
+                            model=model_name,
+                            messages=[{"role": "user", "content": rendered_prompt}],
+                            max_tokens=1024
+                        )
+                        actual = resp.choices[0].message.content
                 except Exception as e:
                     actual = f"[ERROR] {str(e)[:200]}"
 
-                # --- Step 2: Evaluate using LLM-as-a-judge ---
-                test_case = LLMTestCase(
-                    input=inp,
-                    actual_output=actual,
-                    expected_output=expected,
-                    retrieval_context=[expected]  # For contextual metrics
-                )
+                # Build result row
+                result_row = row.to_dict()
+                result_row["actual_output"] = actual
+                results.append(result_row)
 
-                result = {
-                    "input": inp,
-                    "expected_output": expected,
-                    "actual_output": actual,
-                    "Levenshtein Similarity": round(Levenshtein.ratio(expected.lower(), actual.lower()), 2),
-                    "Key-Value Alignment": kv_alignment_score(expected, actual)
-                }
-
-                # Answer Relevance
-                if judge_model:
-                    try:
-                        metric = AnswerRelevancyMetric(model=judge_model)
-                        metric.measure(test_case)
-                        result["Answer Relevance"] = round(metric.score, 2)
-                    except Exception as e:
-                        result["Answer Relevance"] = None
-                else:
-                    result["Answer Relevance"] = None
-
-                # G-Eval: Correctness
-                if judge_model:
-                    try:
-                        correctness = GEval(
-                            name="Correctness",
-                            model=judge_model,
-                            criteria="Is the actual output factually consistent with the expected output?",
-                            evaluation_params=[LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-                        )
-                        correctness.measure(test_case)
-                        result["G-Eval"] = round(correctness.score, 2)
-                    except Exception as e:
-                        result["G-Eval"] = None
-                else:
-                    result["G-Eval"] = None
-
-                results.append(result)
-
-            # Save evaluated results
+            # Save to session
             result_df = pd.DataFrame(results)
-            st.session_state.evaluated_df = result_df
+            st.session_state.experiment_result = result_df
 
-            st.success("✅ Experiment & LLM-Based Evaluation Complete!")
-            st.balloons()
+            st.success("✅ Generation Complete!")
 
-    # --- Display Evaluated Results ---
-    if st.session_state.evaluated_df is not None:
-        result_df = st.session_state.evaluated_df
-        st.subheader("📋 Evaluated Results (With LLM-as-a-Judge Metrics)")
+    # --- Display & Download Results ---
+    if "experiment_result" in st.session_state:
+        result_df = st.session_state.experiment_result
+        st.write("### ✅ Generated Output with `actual_output`")
         st.dataframe(result_df, use_container_width=True)
 
-        # Download button
-        csv_data = result_df.to_csv(index=False).encode("utf-8")
+        csv = result_df.to_csv(index=False).encode("utf-8")
         st.download_button(
-            "⬇️ Download Evaluated Results (Ready for Comparison)",
-            csv_data,
-            "evaluated_model_results.csv",
+            "⬇️ Download Results (CSV)",
+            csv,
+            "experiment_results_with_actuals.csv",
             "text/csv"
         )

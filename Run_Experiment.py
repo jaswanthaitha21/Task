@@ -1,4 +1,4 @@
-# pages/1_🧪_Run_Experiment.py
+# pages/Run_Experiment.py
 
 import streamlit as st
 import pandas as pd
@@ -8,10 +8,17 @@ import os
 
 
 def run_experiment_page():
+    """
+    Page: Run LLM Experiment
+    Purpose: Let user select an LLM, provide a prompt, upload input data,
+             generate actual outputs, and download results.
+    """
+
     st.title("🧪 Run LLM Experiment")
 
     # --- Load Secrets ---
     try:
+        # Secure way to store API keys without hardcoding
         GEMINI_API_KEY = st.secrets["gemini_api_key"]
         OPENAI_API_KEY = st.secrets["openai_api_key"]
     except Exception as e:

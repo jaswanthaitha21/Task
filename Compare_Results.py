@@ -7,7 +7,12 @@ import json
 import Levenshtein
 from io import StringIO
 from difflib import SequenceMatcher
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import nest_asyncio
 
+# Apply nest_asyncio only once
+nest_asyncio.apply()
 
 # --- Custom Metric: Key-Value Alignment ---
 class KeyValueAlignmentScore:
@@ -19,238 +24,250 @@ class KeyValueAlignmentScore:
         return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
     def _parse(self, text):
-        """Parse text into key-value pairs: tries JSON first, then line-by-line 'key: value'"""
+        if isinstance(text, dict): return text
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
+            return json.loads(str(text))
+        except Exception:
             pairs = {}
-            for line in text.strip().splitlines():
+            for line in str(text).splitlines():
                 if ":" in line:
                     parts = line.split(":", 1)
-                    key = parts[0].strip()
-                    value = parts[1].strip()
-                    if key:
-                        pairs[key] = value
-            return pairs if pairs else {}
+                    key = parts[0].strip().strip('"\'{}[]')
+                    value = parts[1].strip().strip('"\'{}[]')
+                    if key: pairs[key] = value
+            return pairs
 
     def measure(self, test_case) -> float:
-        expected_dict = self._parse(test_case.expected_output)
-        actual_dict = self._parse(test_case.actual_output)
+        exp = self._parse(test_case.expected_output)
+        act = self._parse(test_case.actual_output)
+        if not exp or not act: return 0.0
 
-        if not expected_dict or not actual_dict:
-            self.score = 0.0
-            return self.score
+        matched = [k for k in exp if k in act]
+        key_score = len(matched) / len(exp)
+        val_scores = [self._similarity(str(exp[k]), str(act[k])) for k in matched]
+        val_score = sum(val_scores) / len(val_scores) if val_scores else 0.0
 
-        matched_keys = [k for k in expected_dict if k in actual_dict]
-        key_score = len(matched_keys) / len(expected_dict) if expected_dict else 0.0
-
-        value_scores = [
-            self._similarity(expected_dict[k], actual_dict[k])
-            for k in matched_keys
-        ]
-        value_score = sum(value_scores) / len(value_scores) if value_scores else 0.0
-
-        self.score = round(0.5 * key_score + 0.5 * value_score, 2)
+        self.score = round(0.5 * key_score + 0.5 * val_score, 2)
         return self.score
 
 
-# --- Try Import DeepEval Components Safely ---
+# --- Safe DeepEval Import ---
 DEEPEVAL_AVAILABLE = False
 GeminiModel = None
 GPTModel = None
-AnswerRelevancyMetric = None
-ContextualPrecisionMetric = None
-ContextualRecallMetric = None
-GEval = None
-LLMTestCase = None
-LLMTestCaseParams = None
-
 try:
     from deepeval.models import GeminiModel
     from deepeval.models import GPTModel
-    from deepeval.metrics import AnswerRelevancyMetric, ContextualRecallMetric, ContextualPrecisionMetric, GEval
+    from deepeval.metrics import AnswerRelevancyMetric, ContextualPrecisionMetric, ContextualRecallMetric, GEval
     from deepeval.test_case import LLMTestCase, LLMTestCaseParams
-
     DEEPEVAL_AVAILABLE = True
 except Exception as e:
-    pass
+    st.warning(f"⚠️ DeepEval not available: {e}")
 
 
 def compare_results_page():
-    st.set_page_config(page_title="LLM Output Evaluator", layout="wide")
     st.title("🔍 LLM Output Evaluator (Multi-Model Comparison)")
 
-    # --- Debug Logging ---
+    # Debug logs
     if 'debug_logs' not in st.session_state:
         st.session_state.debug_logs = []
 
     def log_debug(msg):
         st.session_state.debug_logs.append(msg)
 
-    # --- Sidebar: Provider, Model Selection ---
+    # --- Sidebar: Judge Config ---
     with st.sidebar:
         st.header("⚙️ Configuration")
 
-        # Provider selection
         provider = st.selectbox(
-            "Select Judge Provider",
+            "Judge Provider",
             options=["gemini", "openai"],
-            format_func=lambda x: x.capitalize()
+            format_func=str.capitalize
         )
 
-        # Load API key from secrets
         try:
             api_key = st.secrets["gemini_api_key"] if provider == "gemini" else st.secrets["openai_api_key"]
-        except Exception as e:
-            st.error(f"Missing API key: {e}")
+        except Exception:
+            st.error("🔑 API key missing in `.streamlit/secrets.toml`")
             return
 
         show_debug = st.checkbox("Show Debug Logs")
 
-        # Model selection
         model_options = {
-            "gemini": ["gemini-1.5-flash", "gemini-1.5-pro"],
-            "openai": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+            "gemini": ["gemini-1.5-pro", "gemini-1.5-flash"],
+            "openai": ["gpt-4o", "gpt-3.5-turbo"]
         }
-        model_name = st.selectbox(f"{provider.capitalize()} Model", model_options[provider])
+        model_name = st.selectbox("Judge Model", model_options[provider])
 
         st.markdown("---")
-        st.info("Upload one CSV per model. Must have: `question`, `expected_output`, `actual_output`.")
+        st.info("Upload CSVs with: `question`, `expected_output`, `actual_output`")
 
     if not DEEPEVAL_AVAILABLE:
         st.error("""
-        Required package `deepeval` not installed.
-
-        Install with:
+        Install required packages:
         ```bash
         pip install "deepeval[all]" google-generativeai openai
         ```
         """)
         return
 
-    # --- Initialize Judge Model ---
+    # Initialize judge model
     judge_model = None
     try:
         if provider == "gemini":
             judge_model = GeminiModel(model_name=model_name, api_key=api_key)
         elif provider == "openai":
             judge_model = GPTModel(model_name=model_name, api_key=api_key)
-        else:
-            st.error("Unsupported provider.")
-            return
     except Exception as e:
         st.error(f"Failed to initialize judge model: {e}")
         return
 
-    # --- File Uploader ---
-    st.write("### 📤 Upload LLM Outputs (One CSV per Model)")
+    if judge_model is None:
+        st.error("Could not initialize judge model.")
+        return
+
+    # File uploader
     uploaded_files = st.file_uploader(
         "Upload CSV files (one per model)",
         type="csv",
         accept_multiple_files=True,
-        help="Each must have: 'question', 'expected_output', 'actual_output'"
+        help="Must have: 'question', 'expected_output', 'actual_output'"
     )
 
     if not uploaded_files:
-        st.info("📤 Please upload one or more model output CSVs to begin evaluation.")
+        st.info("📤 Upload at least one file.")
         return
 
     required_cols = {"question", "expected_output", "actual_output"}
     all_data = []
-    total_files = len(uploaded_files)
+    total_questions = 0
+
+    # Pre-load data
+    for file in uploaded_files:
+        try:
+            df = pd.read_csv(StringIO(file.getvalue().decode("utf-8")))
+            if not required_cols.issubset(df.columns):
+                st.warning(f"⚠️ Skipping {file.name}: missing columns")
+                continue
+            total_questions += len(df)
+        except Exception as e:
+            st.error(f"❌ Failed to read {file.name}: {e}")
+
+    if total_questions == 0:
+        st.error("No valid data found.")
+        return
+
+    # Progress bar
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    for idx, file in enumerate(uploaded_files):
+    # Define async worker for one row
+    async def evaluate_row(row, model_name_display):
+        question = str(row["question"]).strip()
+        expected = str(row["expected_output"]).strip()
+        actual = str(row["actual_output"]).strip()
+
+        lev_sim = round(Levenshtein.ratio(expected.lower(), actual.lower()), 2)
+
+        test_case = LLMTestCase(
+            input=question,
+            actual_output=actual,
+            expected_output=expected,
+            retrieval_context=[expected]
+        )
+
+        result = {
+            "Model": model_name_display,
+            "Question": question,
+            "Expected Output": expected,
+            "Actual Output": actual,
+            "Levenshtein Similarity": lev_sim,
+        }
+
+        # Define sync wrapper for DeepEval metrics
+        def run_metric(name, fn):
+            try:
+                return fn()
+            except Exception as e:
+                log_debug(f"[{name}] {e}")
+                return None
+
+        # Run all metrics concurrently
+        with ThreadPoolExecutor() as executor:
+            loop = asyncio.get_event_loop()
+            tasks = [
+                loop.run_in_executor(executor, run_metric, "AnswerRelevancy", lambda: (
+                    AnswerRelevancyMetric(model=judge_model).measure(test_case),
+                    round(AnswerRelevancyMetric.score, 2)
+                )[1]),
+                loop.run_in_executor(executor, run_metric, "ContextPrecision", lambda: (
+                    ContextualPrecisionMetric(model=judge_model).measure(test_case),
+                    round(ContextualPrecisionMetric.score, 2)
+                )[1]),
+                loop.run_in_executor(executor, run_metric, "ContextRecall", lambda: (
+                    ContextualRecallMetric(model=judge_model).measure(test_case),
+                    round(ContextualRecallMetric.score, 2)
+                )[1]),
+                loop.run_in_executor(executor, run_metric, "GEval", lambda: (
+                    GEval(
+                        name="Correctness",
+                        model=judge_model,
+                        criteria="Is the actual output factually consistent with the expected output?",
+                        evaluation_params=[LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
+                    ).measure(test_case),
+                    round(GEval.score, 2)
+                )[1]),
+            ]
+
+            results = await asyncio.gather(*tasks)
+
+        keys = ["Answer Relevance", "Context Precision", "Context Recall", "G-Eval"]
+        for k, v in zip(keys, results):
+            result[k] = v
+
         try:
-            df = pd.read_csv(StringIO(file.getvalue().decode("utf-8")))
+            kv_metric = KeyValueAlignmentScore()
+            result["Key-Value Alignment"] = kv_metric.measure(test_case)
         except Exception as e:
-            st.error(f"❌ Failed to read {file.name}: {e}")
-            continue
+            result["Key-Value Alignment"] = None
+            log_debug(f"[KV Alignment] {e}")
 
-        model_name_display = file.name.replace(".csv", "").replace("_", " ").replace("-", " ").title()
+        return result
 
-        if not required_cols.issubset(df.columns):
-            missing = required_cols - set(df.columns)
-            st.error(f"⚠️ {model_name_display}: Missing columns: {missing}")
-            continue
-
-        st.write(f"**🧠 Evaluating:** `{model_name_display}` ({len(df)} questions)")
-
-        for _, row in df.iterrows():
-            question = str(row["question"]).strip()
-            expected = str(row["expected_output"]).strip()
-            actual = str(row["actual_output"]).strip()
-
-            lev_similarity = round(Levenshtein.ratio(expected.lower(), actual.lower()), 2)
-
-            retrieval_context = [f"In relation to '{question}', it's important to know that {expected}."]
-
-            test_case = LLMTestCase(
-                input=question,
-                actual_output=actual,
-                expected_output=expected,
-                retrieval_context=retrieval_context
-            )
-
-            result = {
-                "Model": model_name_display,
-                "Question": question,
-                "Expected Output": expected,
-                "Actual Output": actual,
-                "Levenshtein Similarity": lev_similarity,
-            }
-
-            def evaluate_with_log(name, metric_class, **kwargs):
-                try:
-                    metric = metric_class(model=judge_model, **kwargs)
-                    metric.measure(test_case)
-                    score = round(metric.score, 2)
-                    log_debug(f"[{name}] Score: {score}")
-                    return score
-                except Exception as e:
-                    log_debug(f"[{name}] Failed: {e}")
-                    return None
-
-            result["Answer Relevance"] = evaluate_with_log("AnswerRelevancy", AnswerRelevancyMetric)
-            result["Context Precision"] = evaluate_with_log("ContextPrecision", ContextualPrecisionMetric)
-            result["Context Recall"] = evaluate_with_log("ContextRecall", ContextualRecallMetric)
-
+    # Main async runner
+    async def evaluate_all():
+        tasks = []
+        for file in uploaded_files:
             try:
-                correctness = GEval(
-                    name="Correctness",
-                    model=judge_model,
-                    criteria="Is the actual output factually consistent with the expected output?",
-                    evaluation_params=[LLMTestCaseParams.EXPECTED_OUTPUT, LLMTestCaseParams.ACTUAL_OUTPUT],
-                )
-                correctness.measure(test_case)
-                result["G-Eval"] = round(correctness.score, 2)
-                log_debug(f"[G-Eval] Score: {result['G-Eval']}")
+                df = pd.read_csv(StringIO(file.getvalue().decode("utf-8")))
+                if not required_cols.issubset(df.columns):
+                    continue
+                model_name_display = file.name.replace(".csv", "").title()
+                for _, row in df.iterrows():
+                    tasks.append(evaluate_row(row, model_name_display))
             except Exception as e:
-                log_debug(f"[G-Eval] Failed: {e}")
-                result["G-Eval"] = None
+                log_debug(f"Error reading {file.name}: {e}")
 
-            try:
-                kv_metric = KeyValueAlignmentScore()
-                result["Key-Value Alignment"] = kv_metric.measure(test_case)
-                log_debug(f"[Key-Value Alignment] Score: {result['Key-Value Alignment']}")
-            except Exception as e:
-                log_debug(f"[Key-Value Alignment] Failed: {e}")
-                result["Key-Value Alignment"] = None
+        results = await asyncio.gather(*tasks)
+        return results
 
-            all_data.append(result)
+    # Run async evaluation
+    with st.spinner("Running concurrent evaluations..."):
+        start_time = time.time()
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            all_data = loop.run_until_complete(evaluate_all())
+        except Exception as e:
+            st.error(f"Evaluation failed: {e}")
+            return
+        finally:
+            loop.close()
 
-        progress = (idx + 1) / total_files
-        progress_bar.progress(progress)
-        status_text.text(f"✅ Processed {idx + 1}/{total_files} files...")
+        elapsed = time.time() - start_time
+        st.success(f"✅ Evaluation completed in {elapsed:.1f} seconds!")
 
-    progress_bar.empty()
-    status_text.empty()
-
-    if not all_data:
-        st.error("🚫 No valid data found.")
-        return
-
+    # Convert to DataFrame
     result_df = pd.DataFrame(all_data)
     numeric_metrics = [
         "Levenshtein Similarity", "Answer Relevance", "Context Precision",
@@ -261,60 +278,33 @@ def compare_results_page():
         result_df[col] = pd.to_numeric(result_df[col], errors='coerce')
 
     leaderboard_df = result_df.groupby("Model")[numeric_metrics].mean().round(2).reset_index()
-    for col in numeric_metrics:
-        leaderboard_df[col] = pd.to_numeric(leaderboard_df[col], errors='coerce')
-    leaderboard_df.fillna(0.0, inplace=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["🏆 Leaderboard", "📋 Per-Model Results", "📊 Charts", "🔍 Compare Per Question"])
+    # Tabs
+    tab1, tab2, tab3 = st.tabs(["🏆 Leaderboard", "📋 Results", "📈 Charts"])
 
     with tab1:
-        st.subheader("🏅 Model Rankings")
-        styled = leaderboard_df.style.format("{:.2f}", subset=numeric_metrics)
-        for col in numeric_metrics:
-            if leaderboard_df[col].sum() > 0:
-                styled = styled.background_gradient(cmap='Blues', subset=[col])
-        st.dataframe(styled, width='stretch')
+        st.subheader("🏅 Rankings")
+        styled = leaderboard_df.style.format("{:.2f}").background_gradient(cmap='Blues')
+        st.dataframe(styled, use_container_width=True)
 
     with tab2:
-        st.subheader("📋 Detailed Results by Model")
+        st.subheader("📋 Detailed Results")
         for model in result_df["Model"].unique():
             st.markdown(f"#### 🤖 {model}")
-            st.dataframe(result_df[result_df["Model"] == model].drop(columns=["Model"]), height=300)
+            st.dataframe(result_df[result_df["Model"] == model][[
+                "Question", "Expected Output", "Actual Output"
+            ] + numeric_metrics], height=300)
 
     with tab3:
-        st.subheader("📊 Performance Comparison")
-        melted_df = leaderboard_df.melt(id_vars=["Model"], value_vars=numeric_metrics, var_name="Metric",
-                                        value_name="Score")
-        fig = px.bar(melted_df, x="Model", y="Score", color="Metric", barmode="group", title="Scores by Metric")
-        fig.update_layout(height=500)
+        melted = leaderboard_df.melt("Model", var_name="Metric", value_name="Score")
+        fig = px.bar(melted, x="Model", y="Score", color="Metric", barmode="group")
         st.plotly_chart(fig, use_container_width=True)
 
-        st.markdown("### 📈 Distributions")
-        cols = st.columns(2)
-        for i, metric in enumerate(numeric_metrics):
-            fig_hist = px.histogram(result_df, x=metric, color="Model", nbins=10, title=metric)
-            fig_hist.update_layout(height=300)
-            cols[i % 2].plotly_chart(fig_hist, use_container_width=True)
-
-    with tab4:
-        st.subheader("🔎 Per-Question Analysis")
-        for metric in numeric_metrics:
-            st.markdown(f"#### {metric}")
-            pivot = result_df.pivot_table(index="Question", columns="Model", values=metric)
-            winner_counts = pivot.idxmax(axis=1).value_counts()
-            col1, col2 = st.columns([2, 1])
-            with col1:
-                fig = px.bar(pivot.reset_index(), x="Question", y=pivot.columns, barmode="group", title=metric)
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            with col2:
-                st.markdown("**🏆 Winners**")
-                st.write(winner_counts)
-
-    st.download_button("⬇️ Download Full Results", result_df.to_csv(index=False), "results.csv", "text/csv")
-    st.download_button("⬇️ Download Leaderboard", leaderboard_df.to_csv(index=False), "leaderboard.csv", "text/csv")
+    # Downloads
+    st.download_button("⬇️ Full Results", result_df.to_csv(index=False), "results.csv", "text/csv")
+    st.download_button("⬇️ Leaderboard", leaderboard_df.to_csv(index=False), "leaderboard.csv", "text/csv")
 
     if show_debug:
-        with st.expander("🐞 Debug Logs"):
+        with st.expander("🐞 Logs"):
             for msg in st.session_state.debug_logs:
                 st.text(msg)

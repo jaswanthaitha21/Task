@@ -13,60 +13,66 @@ def run_experiment_page():
     Purpose: Let user select an LLM, provide a prompt, upload input data,
              generate actual outputs, and download results.
     """
+    st.title(" Run LLM Experiment")
 
-    st.title("🧪 Run LLM Experiment")
-
-    # --- Load Secrets ---
+    # Load Secrets
     try:
-        # Secure way to store API keys without hardcoding
         GEMINI_API_KEY = st.secrets["gemini_api_key"]
         OPENAI_API_KEY = st.secrets["openai_api_key"]
     except Exception as e:
-        st.error(f"❌ Missing API keys in `.streamlit/secrets.toml`: {e}")
+        st.error(f"X Missing API keys in streamlit/secrets.toml: {e}")
         st.code('gemini_api_key = "your-key"\nopenai_api_key = "your-key"')
         return
 
-    # --- Step 1: Select Provider & Model ---
+    # -- Step 1: Selecting Provider & Model
     st.write("### 1. Select LLM Provider and Model")
+    
     provider = st.selectbox("Provider", ["gemini", "openai"], format_func=str.capitalize)
+    
     model_options = {
-        "gemini": ["gemini-1.5-pro", "gemini-1.5-flash"],
-        "openai": ["gpt-4o", "gpt-3.5-turbo"]
+        "gemini": [
+            "gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro",
+            "gemini-2.0-flash", "gemini-2.0-flash-lite",
+            "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"
+        ],
+        "openai": ["gpt-4", "gpt-4.5", "gpt-4.1", "gpt-40", "gpt-3.5-turbo"]
     }
+    
     model_name = st.selectbox("Model", model_options[provider])
     api_key = GEMINI_API_KEY if provider == "gemini" else OPENAI_API_KEY
 
-    # --- Step 2: Master Prompt with Placeholders ---
+    # -- Step 2: Master Prompt with Placeholders
     st.write("### 2. Enter Master Prompt")
-    st.info("Use `{col_name}` to reference any column from your CSV.")
+    st.info("Use {col_name} to reference any column from your CSV.")
+    
     master_prompt = st.text_area(
         "Prompt Template",
         "Classify the sentiment of this text as POSITIVE, NEUTRAL, or NEGATIVE:\n\n{input}",
         height=180
     )
 
-    # --- Step 3: Upload CSV ---
+    # -- Step 3: Upload CSV
     st.write("### 3. Upload Dataset CSV")
     uploaded_file = st.file_uploader("Upload CSV", type="csv", key="run_csv")
 
     if not uploaded_file:
-        st.info("📤 Upload a CSV file to begin.")
+        st.info(" Upload a CSV file to begin.")
         return
 
     try:
         df = pd.read_csv(uploaded_file)
     except Exception as e:
-        st.error(f"❌ Failed to read CSV: {e}")
+        st.error(f"X Failed to read CSV: {e}")
         return
 
     st.write("#### Input Data Preview")
     st.dataframe(df.head())
 
     cols = list(df.columns)
-    st.info(f"Available columns: {', '.join([f'`{c}`' for c in cols])}")
+    st.info(f"Available columns: {', '.join([f'{c}' for c in cols])}")
 
-    # --- Step 4: Run Experiment ---
-    if st.button("🚀 Run Experiment", key="run_exp"):
+    # -- Step 4: Run Experiment
+    if st.button(" Run Experiment", key="run_exp"):
         with st.spinner("Generating responses..."):
             results = []
 
@@ -78,7 +84,7 @@ def run_experiment_page():
                 else:
                     client = OpenAI(api_key=api_key)
             except Exception as e:
-                st.error(f"❌ Failed to initialize {provider}: {e}")
+                st.error(f"X Failed to initialize {provider}: {e}")
                 return
 
             for _, row in df.iterrows():
@@ -88,7 +94,7 @@ def run_experiment_page():
                 try:
                     rendered_prompt = master_prompt.format(**row.astype(str))
                 except KeyError as e:
-                    st.warning(f"⚠️ Column {e} not found in data. Using fallback prompt.")
+                    st.warning(f" Column {e} not found in data. Using fallback prompt.")
                     rendered_prompt = master_prompt + "\n\n" + str(row.iloc[0])
                 except Exception:
                     rendered_prompt = master_prompt + "\n\n" + str(row.iloc[0])
@@ -99,7 +105,7 @@ def run_experiment_page():
                     image_path = None
                     for col_val in row.astype(str):
                         val = col_val.strip()
-                        if val.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.bmp')) and os.path.exists(val):
+                        if val.lower().endswith(('.png', '.jpg', '.jpeg', 'webp', '.bmp')) and os.path.exists(val):
                             image_path = val
                             break
 
@@ -132,14 +138,12 @@ def run_experiment_page():
 
             result_df = pd.DataFrame(results)
             st.session_state.experiment_result = result_df
+            st.success("Experiment Completed!")
 
-            st.success("✅ Generation Complete!")
-            st.balloons()
-
-    # --- Display & Download Results ---
+    # -- Display & Download Results
     if "experiment_result" in st.session_state:
         result_df = st.session_state.experiment_result
-        st.write("### ✅ Generated Output with `actual_output`")
+        st.write("### Generated Output with actual_output")
         st.dataframe(result_df, use_container_width=True)
 
         csv = result_df.to_csv(index=False).encode("utf-8")
@@ -147,7 +151,7 @@ def run_experiment_page():
         dynamic_filename = f"{model_name}_{original_name}.csv"
 
         st.download_button(
-            "⬇️ Download Results (CSV)",
+            "Download Results (CSV)",
             csv,
             dynamic_filename,
             "text/csv"

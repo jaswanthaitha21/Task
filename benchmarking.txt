@@ -1,0 +1,408 @@
+You're doing a great job already! Your setup is mostly correct, but there are **several syntax and logic issues** in your `main.py` that need fixing before you can run it successfully — especially since you're benchmarking two ASR models on multilingual audio.
+
+Below is a **complete guide** covering:
+
+1. ✅ **Fixes to your `main.py`**
+2. ✅ **Docker Compose & GPU setup**
+3. ✅ **Commands to run everything on a server (with GPU)**
+4. ✅ **How to capture transcriptions + RTF in CSV**
+
+---
+
+## ✅ 1. Fixed `main.py` (with transcriptions saved + bug fixes)
+
+```python
+import os
+import time
+import csv
+import librosa
+import whisper
+import torch
+from dotenv import load_dotenv
+from transformers import AutoProcessor, VoxtralForConditionalGeneration
+from huggingface_hub import login
+
+# Load environment variables
+load_dotenv()
+
+# Authenticate with Hugging Face
+hf_token = os.environ.get("HF_TOKEN")
+if not hf_token:
+    raise ValueError("HF_TOKEN environment variable not set. Please provide your Hugging Face token.")
+
+login(hf_token)
+
+# Paths
+AUDIO_FOLDER = "audio"
+OUTPUT_CSV = "benchmark.csv"
+
+# Load models
+print("Loading Whisper Large...")
+whisper_model = whisper.load_model("large")
+
+print("Loading Voxtral Mini...")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+processor = AutoProcessor.from_pretrained("mistralai/Voxtral-Mini-3B-2507")
+voxtral_model = VoxtralForConditionalGeneration.from_pretrained(
+    "mistralai/Voxtral-Mini-3B-2507",
+    torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32
+).to(device)
+
+# Transcription functions
+def transcribe_whisper(audio_path):
+    start = time.time()
+    result = whisper_model.transcribe(audio_path)
+    end = time.time()
+    duration = librosa.get_duration(path=audio_path)
+    rtf = (end - start) / duration
+    return result["text"], rtf
+
+def transcribe_voxtral(audio_path, language="en"):
+    start = time.time()
+    # Load audio
+    audio, sr = librosa.load(audio_path, sr=processor.feature_extractor.sampling_rate)
+    inputs = processor(
+        audio=audio,
+        sampling_rate=sr,
+        return_tensors="pt",
+        padding=True
+    ).to(device, dtype=torch.bfloat16 if device == "cuda" else torch.float32)
+
+    with torch.no_grad():
+        outputs = voxtral_model.generate(
+            **inputs,
+            max_new_tokens=1024,
+            language=language  # Voxtral supports language hint
+        )
+    text = processor.batch_decode(
+        outputs[:, inputs.input_ids.shape[1]:],
+        skip_special_tokens=True
+    )[0].strip()
+    end = time.time()
+    duration = librosa.get_duration(path=audio_path)
+    rtf = (end - start) / duration
+    return text, rtf
+
+# Auto-detect language (optional improvement)
+# For now, assume English. You can extend this with language detection if needed.
+
+# Benchmarking
+results = []
+for file in os.listdir(AUDIO_FOLDER):
+    if file.endswith((".wav", ".mp3")):
+        path = os.path.join(AUDIO_FOLDER, file)
+        print(f"Processing: {file}")
+
+        # Whisper
+        try:
+            whisper_text, whisper_rtf = transcribe_whisper(path)
+        except Exception as e:
+            whisper_text, whisper_rtf = f"ERROR: {str(e)}", -1
+
+        # Voxtral (default to English; you can improve this)
+        try:
+            voxtral_text, voxtral_rtf = transcribe_voxtral(path, language="en")
+        except Exception as e:
+            voxtral_text, voxtral_rtf = f"ERROR: {str(e)}", -1
+
+        results.append([
+            file,
+            whisper_text,
+            whisper_rtf,
+            voxtral_text,
+            voxtral_rtf
+        ])
+
+# Save CSV
+with open(OUTPUT_CSV, "w", newline="", encoding="utf-8") as f:
+    writer = csv.writer(f)
+    writer.writerow([
+        "Audio File",
+        "Whisper Transcription",
+        "Whisper RTF",
+        "Voxtral Transcription",
+        "Voxtral RTF"
+    ])
+    writer.writerows(results)
+
+print(f"Benchmark complete! Results saved to {OUTPUT_CSV}")
+```
+
+> 🔍 **Key Fixes**:
+> - Fixed typos: `doteny` → `dotenv`, `cou` → `cpu`, `Voxtral-Mini-38-2507` → **`Voxtral-Mini-3B-2507`** (model name was wrong!)
+> - Corrected `librosa.get_duration(path=...)`
+> - Added proper audio loading for Voxtral using `librosa.load` at correct sampling rate
+> - Added error handling
+> - Saved **both transcriptions and RTF** in CSV
+> - Used correct model ID: `"mistralai/Voxtral-Mini-3B-2507"` (not `38`)
+
+---
+
+## ✅ 2. Fix `compose.yaml`
+
+Your Compose file has a few issues:
+
+- Image doesn’t have GPU drivers or PyTorch with CUDA
+- Missing `nvidia` runtime
+- Wrong volume path (should match your bind mount)
+
+### ✅ Corrected `compose.yaml`
+
+```yaml
+version: '3.8'
+
+services:
+  dev:
+    image: pytorch/pytorch:2.3.0-cuda12.1-cudnn8-devel  # Official PyTorch image with CUDA
+    runtime: nvidia  # Required for GPU access
+    entrypoint: bash
+    stdin_open: true
+    tty: true
+    mem_limit: 50g
+    shm_size: 50g
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - HF_TOKEN=${HF_TOKEN}
+    volumes:
+      - type: bind
+        source: /opt/workspace/  # Adjust to your actual host path
+        target: /workspace
+    working_dir: /workspace
+```
+
+> 💡 **Note**: Make sure your server has **NVIDIA Container Toolkit** installed. If not, install it:
+> ```bash
+> # On Ubuntu
+> curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo apt-key add -
+> distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
+> curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
+> sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+> sudo systemctl restart docker
+> ```
+
+---
+
+## ✅ 3. Full Execution Flow on Server
+
+### Step 1: Prepare your server directory
+```bash
+# On your server, create the workspace
+mkdir -p /opt/workspace
+cd /opt/workspace
+
+# Upload your files:
+# - audio/ (folder with .wav/.mp3)
+# - main.py (fixed version above)
+# - .env (with HF_TOKEN=your_token_here)
+# - requirements.txt
+# - compose.yaml
+```
+
+Example `.env`:
+```env
+HF_TOKEN=hf_xxx_your_token_here
+```
+
+### Step 2: Build and start container (with GPU)
+
+```bash
+# Start the container in background (detached)
+docker-compose up -d
+
+# Enter the container
+docker-compose exec dev bash
+```
+
+### Step 3: Inside the container — install dependencies
+
+```bash
+# Install system deps (librosa needs some)
+apt update && apt install -y ffmpeg libsndfile1
+
+# Install Python deps
+pip install -r requirements.txt
+
+# Also install whisper (it's not in requirements.txt but needed)
+pip install openai-whisper
+```
+
+> 📝 Your `requirements.txt` should include:
+> ```
+> librosa
+> openai-whisper
+> transformers>=4.41.0
+> torch
+> huggingface-hub
+> python-dotenv
+> ```
+
+### Step 4: Run the benchmark
+
+```bash
+python main.py
+```
+
+> ✅ Output: `benchmark.csv` with transcriptions + RTF
+
+### Step 5: Keep session alive (optional)
+
+If you're worried about SSH disconnecting:
+
+```bash
+# On host (before docker-compose up)
+screen -S asr_benchmark
+
+# Then run docker commands inside screen
+# Detach with Ctrl+A, D
+# Reattach later with: screen -r asr_benchmark
+```
+
+---
+
+## ✅ 4. Useful Commands Cheat Sheet
+
+| Purpose | Command |
+|-------|--------|
+| Check GPU availability | `nvidia-smi` |
+| List running containers | `docker ps` |
+| Enter running container | `docker exec -it <container_id> bash` |
+| Stop container | `docker-compose down` |
+| Rebuild container | `docker-compose up --build -d` |
+| Monitor GPU usage during run | `watch -n 1 nvidia-smi` |
+| Copy results out (if needed) | `docker cp dev:/workspace/benchmark.csv ./` |
+
+---
+
+## ✅ Bonus: Language Handling
+
+Voxtral supports multiple languages. If you know the language of each file, you can:
+
+- Name files like `en_sample.wav`, `hi_sample.wav`
+- Parse language from filename:
+
+```python
+# Inside loop
+lang = file.split("_")[0] if "_" in file else "en"
+# Then pass lang to transcribe_voxtral(path, language=lang)
+```
+
+Or use a language detection model (e.g., `speechbrain/lang-id-voxlingua107`) — but that adds complexity.
+
+---
+
+## ✅ Final Notes
+
+- **Model name**: It's `Voxtral-Mini-3B-2507`, not `38`. Double-check Hugging Face.
+- **GPU memory**: Both models are large. Use `torch.cuda.empty_cache()` if OOM.
+- **RTF**: Real-Time Factor = (processing time) / (audio duration). <1.0 is real-time.
+
+You’re all set! Run it, and your `benchmark.csv` will contain **full transcriptions + performance metrics** for both models across all languages.
+
+Let me know if you hit OOM or CUDA errors — we can add batch size or chunking!
+
+
+Great question! **CUDA itself doesn’t have “commands” you run directly like `docker` or `python`**, but when working with **GPU-accelerated deep learning (like Whisper or Voxtral)** on a server, you **do need to verify and monitor CUDA/GPU usage** using a few essential **NVIDIA/CUDA-related commands**.
+
+You **don’t run CUDA commands to execute your model**, but you **use them to check if your setup is working correctly** — especially since you’re using Docker + GPU.
+
+---
+
+### ✅ Essential CUDA / GPU Commands You Should Know & Run
+
+#### 1. **Check if NVIDIA drivers & GPU are visible**
+```bash
+nvidia-smi
+```
+- **What it does**: Shows GPU name, driver version, CUDA version, memory usage, and running processes.
+- **When to run**:
+  - Before starting your container → to confirm GPU is detected.
+  - While your script is running → to see if GPU memory is being used.
+- **Expected output**: A table with your GPU (e.g., A100, V100, RTX 4090) and ~0% utilization before run, then high usage during inference.
+
+> 🔴 If this command fails → **NVIDIA drivers not installed** → your GPU won’t work!
+
+---
+
+#### 2. **Check CUDA version (on host)**
+```bash
+nvcc --version
+# OR
+cat /usr/local/cuda/version.txt
+```
+- **Note**: The CUDA version shown here is the **host CUDA toolkit version**.
+- **Important**: Your **Docker image** (e.g., `pytorch/pytorch:2.3.0-cuda12.1...`) already includes its own CUDA runtime — so you don’t need to match host CUDA exactly, as long as the **driver is new enough**.
+
+> ✅ Rule of thumb: **NVIDIA driver ≥ required by Docker image’s CUDA version**  
+> (e.g., CUDA 12.1 needs driver ≥ 530.xx)
+
+---
+
+#### 3. **Verify GPU access inside Docker container**
+After you `docker-compose exec dev bash`, run:
+```bash
+nvidia-smi
+```
+- If it works → your container has GPU access ✅  
+- If it fails → your `compose.yaml` or NVIDIA Docker setup is broken ❌
+
+> 💡 This is the **most important test** — if `nvidia-smi` works inside the container, PyTorch will see the GPU.
+
+---
+
+#### 4. **Check if PyTorch sees the GPU (inside Python)**
+Inside your container, run:
+```python
+python3 -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+```
+- Should output:
+  ```
+  True
+  Tesla V100-SXM2-32GB   # (or your GPU name)
+  ```
+
+> 🔍 If this says `False`, your model will run on CPU → **very slow!**
+
+---
+
+#### 5. **Monitor GPU while your script runs**
+In a **separate terminal** (while `python main.py` is running):
+```bash
+watch -n 1 nvidia-smi
+```
+- Shows real-time GPU utilization, memory usage, and power.
+- You should see:
+  - **GPU-Util**: 30–90%
+  - **Memory-Usage**: Several GB used (Whisper-large ~5–10 GB, Voxtral ~6–8 GB)
+
+> 🚨 If memory usage is 0 → your code is running on CPU by mistake!
+
+---
+
+### ❌ Common Mistakes (and how to fix)
+
+| Symptom | Likely Cause | Fix |
+|-------|--------------|-----|
+| `nvidia-smi` not found in container | Missing `runtime: nvidia` in `compose.yaml` | Add `runtime: nvidia` |
+| `torch.cuda.is_available()` = False | Wrong Docker image (no CUDA) | Use `pytorch/pytorch:...-cuda...` image |
+| OOM (Out of Memory) | Too many models or large batch | Run one model at a time; add `torch.cuda.empty_cache()` |
+| Slow inference | Accidentally using CPU | Check `device = "cuda"` and `nvidia-smi` during run |
+
+---
+
+### ✅ Summary: What You Should Run
+
+| When | Command | Purpose |
+|------|--------|--------|
+| **Before anything** | `nvidia-smi` | Confirm GPU is visible on host |
+| **After `docker-compose up`** | `docker-compose exec dev nvidia-smi` | Confirm GPU in container |
+| **Inside container** | `python3 -c "import torch; print(torch.cuda.is_available())"` | Confirm PyTorch sees GPU |
+| **While running `main.py`** | `watch -n 1 nvidia-smi` (in another terminal) | Monitor GPU usage |
+| **After crash** | Check logs + `nvidia-smi` | Diagnose OOM or driver issues |
+
+---
+
+You **don’t need to run "CUDA commands" to execute your model** — your Python code (with `torch`) uses CUDA automatically **if the environment is set up right**.
+
+But **you absolutely must verify** the above steps — otherwise, you might think you’re using the GPU, but you’re actually running on CPU (which is 10–50x slower)!
+
+Let me know if `nvidia-smi` fails anywhere — I’ll help you debug! 🛠️

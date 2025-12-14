@@ -3,7 +3,7 @@ import speech_recognition as sr
 import google.generativeai as genai
 
 # Configure Gemini API
-genai.configure(api_key="AIzaSyDdMi8XFsFo2ALx6VLa9YAAyViUpaM3rsU")
+genai.configure(api_key="*************************************")
 
 # Initialize recognizer
 recognizer = sr.Recognizer()
@@ -34,4 +34,5 @@ if st.button("Start Listening"):
     except sr.UnknownValueError:
         st.error("Sorry, could not understand your speech.")
     except sr.RequestError as e:
+
         st.error(f"Could not request results; {e}")

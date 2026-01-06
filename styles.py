@@ -196,11 +196,30 @@ input:focus, textarea:focus {
     padding: 8px 16px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     margin-top: 12px;
+    position: relative;
+    z-index: 10;
 }
 
 #input-bar {
     gap: 12px;
     align-items: center;
+    position: relative;
+    z-index: 10;
+    background: white;
+}
+
+/* Hide the parent gr-group and styler containers that show behind */
+.gr-group.svelte-1p9262q {
+    background: transparent !important;
+}
+
+.styler.svelte-1p9262q {
+    background: transparent !important;
+}
+
+/* Make sure input bar row has white background */
+.row.svelte-7xavid {
+    background: transparent !important;
 }
 
 #upload-btn {

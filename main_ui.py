@@ -156,7 +156,7 @@ def create_main_app(available_models: List[str], kb_list: List[Dict]):
             with gr.Column(scale=3):
                 chatbot = gr.Chatbot(label="", height=450, show_label=False)
                 
-                # File upload status
+                # Upload status
                 upload_status = gr.Textbox(
                     label="", 
                     interactive=False, 
@@ -164,32 +164,31 @@ def create_main_app(available_models: List[str], kb_list: List[Dict]):
                     elem_id="upload-status"
                 )
 
-                # Main input container
-                with gr.Group(elem_classes="input-group"):
-                    with gr.Row(elem_id="input-bar"):
-                        upload_btn = gr.UploadButton(
-                            "📎", 
-                            file_count="multiple", 
-                            size="sm", 
-                            elem_id="upload-btn",
-                            file_types=["image", ".pdf", ".txt", ".docx", ".md"]
-                        )
-                        msg_input = gr.Textbox(
-                            placeholder="Ask a question about your documents...",
-                            show_label=False, 
-                            container=False, 
-                            elem_id="msg-input", 
-                            scale=4, 
-                            lines=1
-                        )
-                        model_dropdown = gr.Dropdown(
-                            choices=available_models,
-                            value=available_models[0] if available_models else None,
-                            show_label=False, 
-                            container=False, 
-                            scale=1, 
-                            elem_id="model-dropdown"
-                        )
+                # Main input row - NO GROUP wrapper
+                with gr.Row(elem_id="input-bar", elem_classes="input-group"):
+                    upload_btn = gr.UploadButton(
+                        "📎", 
+                        file_count="multiple", 
+                        size="sm", 
+                        elem_id="upload-btn",
+                        file_types=["image", ".pdf", ".txt", ".docx", ".md"]
+                    )
+                    msg_input = gr.Textbox(
+                        placeholder="Ask a question about your documents...",
+                        show_label=False, 
+                        container=False, 
+                        elem_id="msg-input", 
+                        scale=4, 
+                        lines=1
+                    )
+                    model_dropdown = gr.Dropdown(
+                        choices=available_models,
+                        value=available_models[0] if available_models else None,
+                        show_label=False, 
+                        container=False, 
+                        scale=1, 
+                        elem_id="model-dropdown"
+                    )
 
                 # Settings Panel
                 with gr.Column(visible=False, elem_id="settings-modal") as settings_modal:

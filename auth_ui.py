@@ -1,4 +1,5 @@
 """Authentication UI components: Login and Signup pages"""
+
 import gradio as gr
 
 def create_login_page():
@@ -6,10 +7,10 @@ def create_login_page():
     with gr.Column(elem_id="login-page") as login_page:
         # Title
         gr.Markdown(
-            "# 🔐 Welcome to Common RAG",
+            "# Welcome to Common RAG",
             elem_id="welcome-title"
         )
-        gr.Markdown("### Your intelligent document assistant")
+        
         gr.Markdown("---")
         
         # Centered container for login/signup
@@ -25,15 +26,13 @@ def create_login_page():
                             
                             login_username = gr.Textbox(
                                 label="Username",
-                                placeholder="Enter your username",
-                                elem_id="login-username"
+                                placeholder="Enter your username"
                             )
                             
                             login_password = gr.Textbox(
                                 label="Password",
                                 type="password",
-                                placeholder="Enter your password",
-                                elem_id="login-password"
+                                placeholder="Enter your password"
                             )
                             
                             login_msg = gr.Textbox(
@@ -51,7 +50,7 @@ def create_login_page():
                             )
                             
                             gr.Markdown("---")
-                            gr.Markdown("*Don't have an account? Switch to Sign Up tab*")
+                            gr.Markdown("*Don't have an account? Switch to Sign Up tab*", elem_id="login-note")
                     
                     # Sign Up Tab
                     with gr.Tab("Sign Up"):

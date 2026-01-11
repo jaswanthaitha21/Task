@@ -75,24 +75,7 @@ main > .contain {
 }
 """
 
-with gr.Blocks(
-    title="Common RAG",
-    css=HIDE_NAVBAR_CSS,
-    head="""
-    <script>
-        // Hide navbar elements on load
-        document.addEventListener('DOMContentLoaded', function() {
-            const styles = document.createElement('style');
-            styles.innerHTML = `
-                nav, .navbar, header[role="banner"], [role="navigation"] {
-                    display: none !important;
-                }
-            `;
-            document.head.appendChild(styles);
-        });
-    </script>
-    """
-) as demo:
+with gr.Blocks(title="Common RAG") as demo:
     
     # ========================================================================
     # LOGIN PAGE (Main/Home Page)
@@ -161,7 +144,9 @@ with demo.route("Chat", "/chat"):
         chatbot,
         new_chat_btn,
         current_kb_state,
-        uploaded_files_state
+        uploaded_files_state,
+        kb_buttons,
+        chat_buttons
     ) = create_main_app(AVAILABLE_MODELS, DUMMY_KNOWLEDGE_BASES)
     
     # Authentication check on page load - BLOCKING
@@ -230,15 +215,19 @@ with demo.route("Create Knowledge Base", "/kb-config"):
     (
         kb_config_page,
         back_btn,
-        kb_name_input,
+        doc_source,
         kb_files_upload,
-        split_method,
+        s3_url_input,
+        dms_id_input,
+        chunk_method,
         chunk_size,
         chunk_overlap,
         embedding_model,
         vector_store,
         create_vector_btn,
-        kb_create_status
+        kb_create_status,
+        toggle_doc_source,
+        kb_progress
     ) = create_kb_config_page()
     
     # Authentication check on page load - BLOCKING
@@ -279,9 +268,11 @@ with demo.route("Create Knowledge Base", "/kb-config"):
     create_vector_btn.click(
         kb_config_ui.create_vector_store,
         inputs=[
-            kb_name_input,
+            doc_source,
             kb_files_upload,
-            split_method,
+            s3_url_input,
+            dms_id_input,
+            chunk_method,
             chunk_size,
             chunk_overlap,
             embedding_model,
@@ -294,5 +285,20 @@ if __name__ == "__main__":
     demo.launch(
         share=False,
         server_name="127.0.0.1",
-        server_port=7867
+        server_port=7867,
+        css=HIDE_NAVBAR_CSS,
+        head="""
+        <script>
+        // Hide navbar elements on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const styles = document.createElement('style');
+            styles.innerHTML = `
+                nav, .navbar, header[role="banner"], [role="navigation"] {
+                    display: none !important;
+                }
+            `;
+            document.head.appendChild(styles);
+        });
+        </script>
+        """
     )

@@ -1,34 +1,41 @@
-Hi Jaswanth,
+Hi Sarvam team,
 
-Thanks for the detailed write-up. Here are answers to each question:
+Thanks for the earlier clarification. We have a few final STT WebSocket questions so we can tune our client behavior correctly for production use.
 
-1. Is {"type":"ping"} supported for STT WebSockets?
-Not officially documented. The recommended approach is to keep sending audio. For idle periods, close and reconnect when a new call starts rather than holding a silent connection open.
+The most important question for us is #1 below, as we suspect it may explain the rate-limit behavior we are observing.
 
-2. Is transcribe to flush to recv the right pattern?
-Yes. For continuous live streaming you can keep sending chunks and flush periodically without waiting for recv after every flush.
+1. We estimate our workload should stay below ~40 parallel STT WebSocket connections, yet we occasionally receive 1003 "Rate limit exceeded" responses.
+   
+   In some failure scenarios (e.g., send/recv timeout, broken connection, or 1003 response), our current implementation immediately creates a new WebSocket and retries without explicitly calling "close()" on the previous socket, since we assume the connection is already unusable.
+   
+   Should clients explicitly call "close()" and wait for cleanup before retrying/reconnecting, even when the connection appears dead? Could failing to do so cause stale connections to remain counted against concurrency limits and contribute to unexpected rate-limit errors?
+   
+   Additionally, are there any limits beyond concurrent WebSocket count (e.g., connection creation rate, reconnect rate, flush frequency, or request rate) that we should be aware of?
 
-3. Should 1003 + "Rate limit exceeded" be treated as a rate-limit event?
-Yes - the reason string is the definitive signal. Treat it as a rate-limit event and back off before reconnecting.
+2. For the Pro plan's 100 concurrent STT WebSocket limit, what operating range would you recommend in production to account for reconnects and cleanup delays?
 
-4. Reconnect strategy?
-Exponential backoff - start with 1-2 seconds and increase on repeated failures. Immediate reconnect will typically hit the same error again.
+3. After an abnormal close or timeout, can a connection remain counted against concurrency limits for some period server-side? If so, approximately how long?
 
-5. Are reconnect handshakes/flush/transcribe rate-limited separately?
-The Pro plan limit is 100 concurrent WebSocket connections. Rapid reconnect attempts can also trigger rate limiting - a minimum 1-2 second delay between reconnects is recommended. Flush/transcribe within an open connection are not separately rate-limited.
+4. For STT WebSocket, if "transcribe(audio)" is accepted server-side but the client fails or times out while waiting for "recv()", is that audio duration counted for billing/usage?
 
-6. How long does a closed connection count toward the concurrent limit?
-Released when the close handshake completes. Abnormal closes may take a few seconds to clear server-side. Explicit close() calls are recommended over dropping connections.
+5. If a client sends audio and then receives websocket close code 1003 with reason "Rate limit exceeded", is that attempt counted for billing/usage, or are only successful transcription responses billed?
 
-7. Recommended audio chunk duration?
-5-second WAV at 8 kHz is fine. Smaller chunks (500ms-1s) reduce latency. No hard maximum, but very large chunks increase processing time.
+6. For 1003 + "Rate limit exceeded", should the client retry the same audio chunk after a cooldown, or skip that chunk and continue with later audio?
 
-8. Limits on flush()/recv() frequency?
-No explicit per-connection limits. However, very frequent flushing after tiny chunks can reduce transcription accuracy - the model benefits from hearing longer utterances.
+7. If retrying the same chunk is recommended, what cooldown/backoff strategy do you suggest? Is exponential backoff acceptable, and what minimum cooldown would you recommend?
 
-Docs: STT WebSocket Overview
+8. For low-latency live STT where audio arrives every 5 seconds and transcripts are needed every 5 seconds, is a "transcribe -> flush -> recv" cycle per chunk an acceptable production pattern?
 
-If you continue hitting rate limits frequently, a Business plan upgrade provides higher concurrent connection limits. Let us know if you need more details.
+9. You mentioned continuous streaming can send chunks and flush periodically without waiting for "recv()" after every flush. For a live analytics use case, is waiting for "recv()" every 5 seconds fully supported, or could it negatively impact throughput/latency?
 
-Best regards,
-Team Sarvam
+10. Is 5-second WAV chunking a recommended chunk size for low-latency STT, or do you suggest smaller/larger chunks?
+
+11. For stereo WAV input, is stereo officially supported? If stereo audio is sent, does the service process both channels, downmix to mono, or use only one channel?
+
+12. If separate speakers are present on separate stereo channels, do you recommend sending stereo as-is or downmixing to mono before STT?
+
+13. Can support provide account-side metrics for a specific time window, such as active STT WebSocket count, rejected handshakes, close-code counts, and billed STT seconds/minutes?
+
+These answers will help us understand the observed rate-limit behavior, avoid retry storms, and implement a production-safe STT WebSocket strategy.
+
+Thank you.

@@ -1,558 +1,543 @@
-Here's a comprehensive project specification that you can hand to Codex (or another coding agent) as the design document.
+I think we should not jump into coding yet. One thing I've learned from production AI projects is:
 
-Project Specification
+> 80% of the success comes from validating the hypothesis before writing thousands of lines of code.
 
-Project Name
 
-SASD (Structure-Aware Speculative Delegation)
 
-Subtitle:
+If I were leading this as a research engineer, this is exactly the roadmap I'd follow.
 
-A Hierarchical AI Inference Framework for Cost-Efficient Enterprise Document Intelligence
 
 ---
 
-1. Vision
+Project: AIRS (Adaptive Inference Routing System)
 
-Enterprise document extraction pipelines typically send the entire document to a large multimodal LLM (such as Gemini) regardless of document complexity.
+Goal
 
-This results in:
+Build a research POC that reduces enterprise document extraction cost and latency by intelligently routing work to the cheapest capable engine while maintaining near-Gemini extraction quality.
 
-- High inference cost
-- High latency
-- Unnecessary compute
-- Poor scalability
+Research Question
 
-SASD introduces a hierarchical delegation layer that decides which parts of a document require expensive reasoning and which can be handled by a lightweight local model.
+> Can adaptive inference routing reduce cloud LLM usage while maintaining ≥98% of Gemini's extraction accuracy?
 
-The objective is to preserve extraction quality while significantly reducing LLM usage.
+
+
 
 ---
 
-2. Research Hypothesis
+Phase 0 — Literature & Novelty Check (1–2 days)
 
-Not every page, region, table, or field requires the same amount of reasoning.
+Objective
 
-A lightweight model should solve easy extraction tasks.
+Ensure AIRS is genuinely novel and identify the closest related work.
 
-Only difficult regions should be delegated to a large LLM.
+Tasks
 
----
+Read and summarize:
 
-3. High-Level Architecture
+EcoDoc (adaptive modality selection)
 
-                PDF / Image
-                     │
-                     ▼
-        Structure Analyzer
-     (Layout + Region Detection)
-                     │
-                     ▼
-         Document Structure Graph
-                     │
-                     ▼
-          Delegation Planner
-                     │
-      ┌──────────────┴──────────────┐
-      │                             │
-      ▼                             ▼
- Small Local Model           Gemini / Large LLM
-      │                             │
-      └──────────────┬──────────────┘
-                     ▼
-              Result Merger
-                     │
-                     ▼
-             Structured JSON Output
+LongSpec
 
----
+QuantSpec
 
-4. Core Components
+SpecCache
 
-Component 1
+MARS (adaptive reasoning)
 
-Structure Analyzer
+MoLoRAG
 
-Purpose:
+FLOWREADER
 
-Understand document layout before extraction.
 
-Responsibilities:
+Create a comparison table:
 
-- Detect pages
-- Detect tables
-- Detect paragraphs
-- Detect key-value regions
-- Detect signatures
-- Detect stamps
-- Detect checkboxes
+Problem solved
 
-Possible models:
+Core idea
 
-- DocLayout-YOLO
-- PaddleOCR Layout
-- LayoutParser
-- MinerU
-- Docling
+Limitation
 
-Output:
+How AIRS differs
 
-{
-  "page": 1,
-  "regions": [
-    {
-      "type": "table",
-      "bbox": [x1,y1,x2,y2]
-    },
-    {
-      "type": "paragraph"
-    }
-  ]
-}
+
+
+Deliverable
+
+docs/literature_review.md
+
 
 ---
 
-Component 2
+Phase 1 — Validate the Core Assumption (2–3 days)
 
-Structure Graph Builder
+Objective
 
-Convert detected regions into a hierarchical graph.
+Answer the most important question before building anything.
 
-Example:
+Experiment 1
 
-Document
+Measure Gemini performance on:
 
- ├── Page 1
+Full document
 
- │      ├── Header
+Single page
 
- │      ├── Vehicle Table
+Cropped region
 
- │      ├── Signature
 
- │      └── Footer
-
- ├── Page 2
-
- └── Page 3
-
-Every node should store:
-
-- type
-- coordinates
-- page number
-- extracted text (optional)
-- confidence
-
----
-
-Component 3
-
-Small Local Model
-
-Purpose:
-
-Extract straightforward fields.
-
-Candidate models:
-
-- Qwen2.5-3B-Instruct
-- Qwen2.5-VL
-- Phi-4 Mini
-- Gemma 3 (small)
-- SmolDocling (for document understanding if suitable)
-
-Responsibilities:
-
-Extract:
-
-- Name
-- DOB
-- Policy Number
-- Premium
-- Registration Number
-- Engine Number
-- Chassis Number
-- PAN
-- Aadhaar
-- Dates
-
-Also output confidence.
-
-Example:
-
-{
-  "policy_number":{
-      "value":"ABC12345",
-      "confidence":0.99
-  }
-}
-
----
-
-Component 4
-
-Delegation Planner
-
-This is the main research contribution.
-
-Input:
-
-- Region type
-- Field type
-- Local model confidence
-- Layout complexity
-- Table complexity
-- Handwritten detection
-- OCR confidence (if OCR is used)
-- Business rules
-
-Output:
-
-Local
-
-or
-
-Gemini
-
-Example:
-
-Field| Decision
-Name| Local
-Premium| Local
-Policy Number| Local
-Accident Description| Gemini
-Handwritten Notes| Gemini
-Medical Narrative| Gemini
-
-Version 1:
-
-Rule-based planner.
-
-Version 2:
-
-Learned planner.
-
----
-
-Component 5
-
-Gemini Verification
-
-Gemini should receive ONLY:
-
-- difficult regions
-- uncertain fields
-- ambiguous sections
-
-Instead of:
-
-Entire document
-
-Gemini receives:
-
-Verify
-
-Policy Number
-
-Verify
-
-Nominee
-
-Verify
-
-Handwritten Notes
-
----
-
-Component 6
-
-Result Merger
-
-Merge outputs from:
-
-Local model
-
-+ 
-
-Gemini
-
-Produce final JSON.
-
----
-
-5. Pipeline
-
-PDF
-
-↓
-
-Structure Analysis
-
-↓
-
-Region Detection
-
-↓
-
-Small Model Extraction
-
-↓
-
-Confidence Estimation
-
-↓
-
-Delegation Planner
-
-↓
-
-Gemini Verification
-
-↓
-
-Merge Results
-
-↓
-
-JSON
-
----
-
-6. Research Questions
-
-RQ1
-
-Can hierarchical delegation reduce LLM usage without reducing extraction accuracy?
-
-RQ2
-
-Can field-level routing outperform sending the full document to Gemini?
-
-RQ3
-
-How much latency reduction is achieved?
-
-RQ4
-
-How much API cost reduction is achieved?
-
-RQ5
-
-What percentage of fields can be solved locally?
-
----
-
-7. Evaluation Metrics
-
-Accuracy
-
-Field-level precision
-
-Field-level recall
-
-Field-level F1
-
-Exact Match
-
-JSON Accuracy
-
----
-
-Performance
+Record:
 
 Latency
 
-Average latency per document
+Token usage (if available)
 
-Throughput
+API cost
 
-Documents/sec
+Accuracy
 
-GPU utilization
 
-Memory
+Experiment 2
+
+Measure parsing cost using one parser (Docling, PaddleOCR, or another).
+
+Record:
+
+Parsing time
+
+OCR time
+
+Layout detection time
+
+
+Success Criterion
+
+Determine whether reducing the input size to Gemini actually yields meaningful savings.
+
+Deliverable
+
+docs/feasibility_report.md
+
 
 ---
+
+Phase 2 — Dataset Preparation (2–3 days)
+
+Collect Documents
+
+Gather a representative set of insurance documents.
+
+Examples:
+
+Proposal forms
+
+RC books
+
+Driving licences
+
+Aadhaar
+
+PAN
+
+Invoices
+
+Medical reports
+
+Claim forms
+
+
+Target:
+
+100–300 documents for a POC.
+
+
+Annotation
+
+Define a schema (20–40 KVPs).
+
+Example:
+
+{
+  "policy_number": "",
+  "premium": "",
+  "registration_number": "",
+  "engine_number": "",
+  "nominee": "",
+  "claim_amount": ""
+}
+
+Create ground truth labels.
+
+
+---
+
+Phase 3 — Baseline (3–4 days)
+
+Build the simplest benchmark.
+
+Pipeline:
+
+PDF
+ ↓
+Gemini
+ ↓
+JSON
+
+Measure:
+
+Accuracy
+
+Latency
 
 Cost
 
-Gemini tokens
+Throughput
 
-Gemini requests
 
-Estimated API cost
+This becomes the baseline every future experiment must beat.
 
-Average cost/document
 
 ---
 
-Delegation Metrics
+Phase 4 — AIRS Architecture (Week 2)
 
-Percentage handled locally
+Module 1 — Document Parser
 
-Percentage delegated
+Input:
 
-Delegation accuracy
+PDF
 
-Planner precision
 
-Planner recall
+Output:
+
+Document Graph
+
+
+The graph should contain:
+
+Pages
+
+Regions
+
+Tables
+
+Paragraphs
+
+Bounding boxes
+
+Extracted text (if available)
+
+
+Only parse once.
+
 
 ---
 
-8. Baselines
+Module 2 — Task Generator
 
-Baseline 1
+Convert the schema into extraction tasks.
 
-Entire PDF → Gemini
+Example:
 
-Baseline 2
+Extract Policy Number
+Extract Premium
+Extract VIN
+Extract Claim Description
 
-OCR → Gemini
-
-Baseline 3
-
-OCR → Local LLM
-
-Baseline 4
-
-SASD
 
 ---
 
-9. Suggested Tech Stack
+Module 3 — Evidence Locator
+
+Find the minimum region relevant to each task.
+
+Example:
+
+Policy Number
+→ Page 2, Box 14
+
+Premium
+→ Page 4, Table 2
+
+Nominee
+→ Page 5, Form Section
+
+Initially use heuristics. Later improve.
+
+
+---
+
+Module 4 — Routing Engine
+
+This is the research contribution.
+
+For each task, decide:
+
+Skip
+
+Rules / Regex
+
+Small Model
+
+Gemini
+
+Version 1:
+
+Rule-based routing.
+
+
+Version 2:
+
+Learned routing.
+
+
+
+---
+
+Module 5 — Execution Engine
+
+Run only the selected engine for each task.
+
+No engine should process the entire document.
+
+Each engine receives only the evidence relevant to its task.
+
+
+---
+
+Module 6 — Result Fusion
+
+Merge outputs into one final JSON.
+
+
+---
+
+Phase 5 — Evaluation (Week 3)
+
+Compare:
+
+Baseline
+
+PDF
+ ↓
+Gemini
+
+vs
+
+AIRS
+
+PDF
+ ↓
+Parser
+ ↓
+Task Generator
+ ↓
+Router
+ ↓
+Regex / Local / Gemini
+ ↓
+Merge
+
+Metrics:
+
+Field-level precision
+
+Recall
+
+F1
+
+Exact match
+
+Latency
+
+Cost per document
+
+Gemini invocation rate
+
+Throughput
+
+
+
+---
+
+Phase 6 — Ablation Studies
+
+Measure the impact of each component.
+
+Examples:
+
+1. Parser + Gemini
+
+
+2. Parser + Router + Gemini
+
+
+3. Parser + Router + Regex + Gemini
+
+
+4. Parser + Router + Local + Gemini
+
+
+5. Full AIRS
+
+
+
+This shows where gains come from.
+
+
+---
+
+Suggested Tech Stack
+
+Language:
 
 Python
 
+
+API:
+
 FastAPI
 
-PyTorch
+
+Models:
+
+Gemini
+
+Small local VLM/LLM (later)
+
+
+Parsing:
+
+Docling or PaddleOCR
+
+
+Libraries:
 
 Transformers
 
-vLLM (optional)
-
-DocLayout-YOLO or LayoutParser
-
-PaddleOCR or Docling (optional)
-
-Gemini API
+OpenCV
 
 Pydantic
 
-OpenCV
+NetworkX
 
-NetworkX (for structure graph)
 
-MLflow or Weights & Biases (optional for experiment tracking)
+Evaluation:
 
----
+Pandas
 
-10. Project Directory
+NumPy
 
-sasd/
+Matplotlib
 
-    data/
 
-    models/
-
-    planner/
-
-    structure/
-
-    extraction/
-
-    verification/
-
-    evaluation/
-
-    api/
-
-    experiments/
-
-    notebooks/
-
-    docs/
 
 ---
 
-11. Milestones
+Repository Structure
 
-Week 1
+airs/
+│
+├── data/
+├── docs/
+├── parser/
+├── graph/
+├── tasks/
+├── router/
+├── engines/
+│   ├── regex/
+│   ├── local/
+│   └── gemini/
+├── fusion/
+├── evaluation/
+├── experiments/
+├── api/
+└── notebooks/
 
-- Build structure analyzer
-- Parse documents
-- Build graph representation
-
-Week 2
-
-- Integrate local model
-- Extract fields
-- Confidence estimation
-
-Week 3
-
-- Build delegation planner
-- Integrate Gemini verification
-- Merge outputs
-
-Week 4
-
-- Benchmark against Gemini baseline
-- Measure latency, cost, and accuracy
-- Prepare demo and report
 
 ---
 
-12. Risks
+Success Metrics
 
-- Planner routes difficult fields to the local model, reducing quality.
-- Planner overhead outweighs latency savings.
-- Local model quality is insufficient for some document types.
-- Gemini API latency dominates overall runtime.
+Metric	Target
 
-Mitigations:
+Accuracy	≥98% of Gemini baseline
+Gemini usage	Reduce by 60–80%
+Cost	Reduce by 5–10× (if routing is effective)
+Throughput	Improve by 2–5×
+Parser overhead	Small relative to end-to-end runtime
 
-- Start with conservative delegation.
-- Escalate low-confidence predictions.
-- Benchmark using multiple document types.
 
----
-
-13. Success Criteria
-
-Minimum:
-
-- ≥95% of Gemini field-level accuracy.
-- 30–50% reduction in Gemini usage.
-
-Strong:
-
-- ≥98% of Gemini accuracy.
-- 60–80% reduction in Gemini requests or processed content.
-- 2–5× improvement in throughput.
-
-Stretch Goal:
-
-- Demonstrate that SASD is a reusable inference orchestration framework applicable beyond insurance (banking, healthcare, legal, finance).
 
 ---
 
-14. Future Extensions
+Risks to Validate Early
 
-- Learned delegation planner using reinforcement learning.
-- Multi-agent verification.
-- Dynamic compute budgeting.
-- Hierarchical speculative page navigation.
-- Cross-document memory reuse.
-- Adaptive routing based on latency or cost budgets.
-- Support for multiple backend LLMs (Gemini, GPT, Claude, local VLMs).
+Does Gemini become significantly faster when given only relevant pages or regions?
+
+Can the parser reliably locate evidence without expensive processing?
+
+Can the router make correct decisions without introducing excessive overhead?
+
+Does the local model add enough value to justify its execution time?
+
+
 
 ---
 
-15. Important Note
+What to Ask Codex to Build First
 
-This POC is not intended to replace Gemini.
+Sprint 1 (Do not use AI yet)
 
-The goal is to create an AI inference orchestration layer that intelligently decides when a powerful LLM is actually needed. If successful, the same orchestration strategy could be applied to many enterprise document workflows where reducing latency and cloud inference cost is important while maintaining high extraction quality.One recommendation before you start coding: validate the novelty with your manager first. Present the architecture and research hypothesis, and ask whether the team has already explored field-level routing or delegation. A 15-minute discussion now can save weeks of building something that overlaps with an existing internal prototype.
+PDF ingestion.
+
+Document graph generation.
+
+Page/region representation.
+
+Schema configuration.
+
+Benchmark framework.
+
+
+Sprint 2
+
+Baseline Gemini pipeline.
+
+Metrics collection.
+
+Cost and latency logging.
+
+
+Sprint 3
+
+Evidence locator.
+
+Rule-based router.
+
+Regex engine.
+
+
+Sprint 4
+
+Gemini verification on evidence only.
+
+Result merger.
+
+Evaluation dashboard.
+
+
+Sprint 5
+
+Plug in a local model.
+
+Experiment with adaptive routing.
+
+Optimize based on benchmarks.
+
+
+
+---
+
+One final recommendation
+
+Before you ask Codex to write any code, make it build the project as a research platform rather than a single pipeline. Every module (parser, router, engines, evaluator) should be swappable through configuration. That way, you can easily compare different parsers, local models, routing strategies, and LLMs without rewriting the system. That flexibility will make the POC far more valuable for experimentation and much easier to present to your manager.

@@ -1,55 +1,558 @@
+Here's a comprehensive project specification that you can hand to Codex (or another coding agent) as the design document.
 
-Hi Jaswanth,
+Project Specification
 
-Happy to answer your follow-up questions. Here are responses to each:
+Project Name
 
-1. Should clients call close() and wait for cleanup before retrying — could stale connections count against limits?
-Yes — always call close() and wait for the close handshake to complete before reconnecting. Abnormal closes (e.g. dropping the connection without a proper close frame) can leave stale server-side state for a few seconds, during which that slot may still count against your concurrency limit. This is likely contributing to the unexpected rate-limit errors at ~40 connections.
+SASD (Structure-Aware Speculative Delegation)
 
-2. Are there limits beyond concurrent connection count?
-The primary limit is concurrent WebSocket connections. Rapid reconnect attempts can also trigger rate limiting — a minimum 1–2 second delay between reconnects is recommended. There are no separately enforced limits on flush frequency or transcribe call rate within an open connection.
+Subtitle:
 
-3. Recommended operating range for Pro plan (100 concurrent limit)?
-We recommend staying at 70–80% of your plan limit under normal conditions to leave headroom for reconnects and cleanup. For a 100-connection limit, target ≤75–80 active connections at any moment.
+A Hierarchical AI Inference Framework for Cost-Efficient Enterprise Document Intelligence
 
-4. How long can a closed connection remain counted against limits?
-A proper close handshake releases the slot immediately. Abnormal closes (dropped without close frame) may hold the slot for a few seconds on the server side — typically 3–10 seconds, though this is not a guaranteed SLA. This is why explicit close() is important.
+---
 
-5. Is audio duration billed if transcribe() was accepted but the client timed out waiting for recv()?
-Billing is based on audio submitted for transcription, not on whether the client received the response. If the audio was accepted server-side, the duration is counted for billing regardless of client timeout behavior.
+1. Vision
 
-6. If the client receives close 1003 "Rate limit exceeded", is that attempt billed?
-If the connection was rate-limited at the WebSocket connection level (rejected handshake or rejected before audio processing), that audio is not billed. If audio was already being processed and then the connection was closed, the processed portion may be billed.
+Enterprise document extraction pipelines typically send the entire document to a large multimodal LLM (such as Gemini) regardless of document complexity.
 
-7. Should clients retry the same audio chunk after a 1003, or skip?
-Retry with exponential backoff. The 1003 indicates a rate-limit event, not a data problem — the audio chunk is still valid. Back off, reconnect, and resend the chunk.
+This results in:
 
-8. Recommended cooldown/backoff for 1003?
-Exponential backoff starting at 1–2 seconds is appropriate. A minimum of 2 seconds is recommended before the first retry attempt.
+- High inference cost
+- High latency
+- Unnecessary compute
+- Poor scalability
 
-9. Are malformed/invalid audio payloads counted toward usage or rate-limit counters?
-Invalid audio that is rejected before processing (e.g. bad header, no audio frames) is not billed. It may count toward connection/request counters in edge cases, but valid close/reconnect flows are not penalized for one-off bad payloads.
+SASD introduces a hierarchical delegation layer that decides which parts of a document require expensive reasoning and which can be handled by a lightweight local model.
 
-10. Should clients retry or skip malformed audio?
-Treat malformed audio as a client-side validation error. Fix or skip the payload — do not retry the same invalid data. Re-building the connection is recommended if the WebSocket was closed due to the error.
+The objective is to preserve extraction quality while significantly reducing LLM usage.
 
-11. Is transcribe → flush → recv every 5 seconds an acceptable production pattern?
-Yes. This is a supported and valid pattern for periodic low-latency analytics use cases.
+---
 
-12. Is waiting for recv() every 5 seconds fully supported for continuous streaming?
-Yes, waiting for recv() after each 5-second flush is fully supported. It will not negatively impact throughput at that frequency. For truly continuous high-volume streaming, you can pipeline multiple flushes and collect responses asynchronously, but 5-second batches are fine.
+2. Research Hypothesis
 
-13. Is 5-second WAV chunking a recommended chunk size?
-5 seconds is a reasonable chunk size for low-latency STT. Smaller chunks (500ms–1s) reduce latency further but may reduce accuracy on incomplete utterances. Larger chunks (10–30s) improve accuracy for longer phrases but increase latency. 5s is a good balance for live analytics.
+Not every page, region, table, or field requires the same amount of reasoning.
 
-14–15. Stereo WAV support?
-Mono audio (single channel) is recommended. For stereo input, the service will process the audio but behavior varies — we recommend downmixing to mono before sending for most use cases. If you have separate speakers on separate channels, downmix or send each channel separately for best results. Stereo-native diarization is not officially documented.
+A lightweight model should solve easy extraction tasks.
 
-16. Account-side metrics (active connections, rejected handshakes, close code counts, billed seconds)?
-Granular per-account telemetry of this type is not available via self-serve at this time. For usage breakdowns, the dashboard at dashboard.sarvam.ai shows credit consumption. For detailed diagnostics, please share the time window + approximate usage in your reply and the team can look into it internally.
+Only difficult regions should be delegated to a large LLM.
 
-Hope this helps you finalize your production STT WebSocket strategy. Let us know if anything is still unclear.
+---
 
-Best regards,
-Team Sarvam
+3. High-Level Architecture
 
+                PDF / Image
+                     │
+                     ▼
+        Structure Analyzer
+     (Layout + Region Detection)
+                     │
+                     ▼
+         Document Structure Graph
+                     │
+                     ▼
+          Delegation Planner
+                     │
+      ┌──────────────┴──────────────┐
+      │                             │
+      ▼                             ▼
+ Small Local Model           Gemini / Large LLM
+      │                             │
+      └──────────────┬──────────────┘
+                     ▼
+              Result Merger
+                     │
+                     ▼
+             Structured JSON Output
+
+---
+
+4. Core Components
+
+Component 1
+
+Structure Analyzer
+
+Purpose:
+
+Understand document layout before extraction.
+
+Responsibilities:
+
+- Detect pages
+- Detect tables
+- Detect paragraphs
+- Detect key-value regions
+- Detect signatures
+- Detect stamps
+- Detect checkboxes
+
+Possible models:
+
+- DocLayout-YOLO
+- PaddleOCR Layout
+- LayoutParser
+- MinerU
+- Docling
+
+Output:
+
+{
+  "page": 1,
+  "regions": [
+    {
+      "type": "table",
+      "bbox": [x1,y1,x2,y2]
+    },
+    {
+      "type": "paragraph"
+    }
+  ]
+}
+
+---
+
+Component 2
+
+Structure Graph Builder
+
+Convert detected regions into a hierarchical graph.
+
+Example:
+
+Document
+
+ ├── Page 1
+
+ │      ├── Header
+
+ │      ├── Vehicle Table
+
+ │      ├── Signature
+
+ │      └── Footer
+
+ ├── Page 2
+
+ └── Page 3
+
+Every node should store:
+
+- type
+- coordinates
+- page number
+- extracted text (optional)
+- confidence
+
+---
+
+Component 3
+
+Small Local Model
+
+Purpose:
+
+Extract straightforward fields.
+
+Candidate models:
+
+- Qwen2.5-3B-Instruct
+- Qwen2.5-VL
+- Phi-4 Mini
+- Gemma 3 (small)
+- SmolDocling (for document understanding if suitable)
+
+Responsibilities:
+
+Extract:
+
+- Name
+- DOB
+- Policy Number
+- Premium
+- Registration Number
+- Engine Number
+- Chassis Number
+- PAN
+- Aadhaar
+- Dates
+
+Also output confidence.
+
+Example:
+
+{
+  "policy_number":{
+      "value":"ABC12345",
+      "confidence":0.99
+  }
+}
+
+---
+
+Component 4
+
+Delegation Planner
+
+This is the main research contribution.
+
+Input:
+
+- Region type
+- Field type
+- Local model confidence
+- Layout complexity
+- Table complexity
+- Handwritten detection
+- OCR confidence (if OCR is used)
+- Business rules
+
+Output:
+
+Local
+
+or
+
+Gemini
+
+Example:
+
+Field| Decision
+Name| Local
+Premium| Local
+Policy Number| Local
+Accident Description| Gemini
+Handwritten Notes| Gemini
+Medical Narrative| Gemini
+
+Version 1:
+
+Rule-based planner.
+
+Version 2:
+
+Learned planner.
+
+---
+
+Component 5
+
+Gemini Verification
+
+Gemini should receive ONLY:
+
+- difficult regions
+- uncertain fields
+- ambiguous sections
+
+Instead of:
+
+Entire document
+
+Gemini receives:
+
+Verify
+
+Policy Number
+
+Verify
+
+Nominee
+
+Verify
+
+Handwritten Notes
+
+---
+
+Component 6
+
+Result Merger
+
+Merge outputs from:
+
+Local model
+
++ 
+
+Gemini
+
+Produce final JSON.
+
+---
+
+5. Pipeline
+
+PDF
+
+↓
+
+Structure Analysis
+
+↓
+
+Region Detection
+
+↓
+
+Small Model Extraction
+
+↓
+
+Confidence Estimation
+
+↓
+
+Delegation Planner
+
+↓
+
+Gemini Verification
+
+↓
+
+Merge Results
+
+↓
+
+JSON
+
+---
+
+6. Research Questions
+
+RQ1
+
+Can hierarchical delegation reduce LLM usage without reducing extraction accuracy?
+
+RQ2
+
+Can field-level routing outperform sending the full document to Gemini?
+
+RQ3
+
+How much latency reduction is achieved?
+
+RQ4
+
+How much API cost reduction is achieved?
+
+RQ5
+
+What percentage of fields can be solved locally?
+
+---
+
+7. Evaluation Metrics
+
+Accuracy
+
+Field-level precision
+
+Field-level recall
+
+Field-level F1
+
+Exact Match
+
+JSON Accuracy
+
+---
+
+Performance
+
+Latency
+
+Average latency per document
+
+Throughput
+
+Documents/sec
+
+GPU utilization
+
+Memory
+
+---
+
+Cost
+
+Gemini tokens
+
+Gemini requests
+
+Estimated API cost
+
+Average cost/document
+
+---
+
+Delegation Metrics
+
+Percentage handled locally
+
+Percentage delegated
+
+Delegation accuracy
+
+Planner precision
+
+Planner recall
+
+---
+
+8. Baselines
+
+Baseline 1
+
+Entire PDF → Gemini
+
+Baseline 2
+
+OCR → Gemini
+
+Baseline 3
+
+OCR → Local LLM
+
+Baseline 4
+
+SASD
+
+---
+
+9. Suggested Tech Stack
+
+Python
+
+FastAPI
+
+PyTorch
+
+Transformers
+
+vLLM (optional)
+
+DocLayout-YOLO or LayoutParser
+
+PaddleOCR or Docling (optional)
+
+Gemini API
+
+Pydantic
+
+OpenCV
+
+NetworkX (for structure graph)
+
+MLflow or Weights & Biases (optional for experiment tracking)
+
+---
+
+10. Project Directory
+
+sasd/
+
+    data/
+
+    models/
+
+    planner/
+
+    structure/
+
+    extraction/
+
+    verification/
+
+    evaluation/
+
+    api/
+
+    experiments/
+
+    notebooks/
+
+    docs/
+
+---
+
+11. Milestones
+
+Week 1
+
+- Build structure analyzer
+- Parse documents
+- Build graph representation
+
+Week 2
+
+- Integrate local model
+- Extract fields
+- Confidence estimation
+
+Week 3
+
+- Build delegation planner
+- Integrate Gemini verification
+- Merge outputs
+
+Week 4
+
+- Benchmark against Gemini baseline
+- Measure latency, cost, and accuracy
+- Prepare demo and report
+
+---
+
+12. Risks
+
+- Planner routes difficult fields to the local model, reducing quality.
+- Planner overhead outweighs latency savings.
+- Local model quality is insufficient for some document types.
+- Gemini API latency dominates overall runtime.
+
+Mitigations:
+
+- Start with conservative delegation.
+- Escalate low-confidence predictions.
+- Benchmark using multiple document types.
+
+---
+
+13. Success Criteria
+
+Minimum:
+
+- ≥95% of Gemini field-level accuracy.
+- 30–50% reduction in Gemini usage.
+
+Strong:
+
+- ≥98% of Gemini accuracy.
+- 60–80% reduction in Gemini requests or processed content.
+- 2–5× improvement in throughput.
+
+Stretch Goal:
+
+- Demonstrate that SASD is a reusable inference orchestration framework applicable beyond insurance (banking, healthcare, legal, finance).
+
+---
+
+14. Future Extensions
+
+- Learned delegation planner using reinforcement learning.
+- Multi-agent verification.
+- Dynamic compute budgeting.
+- Hierarchical speculative page navigation.
+- Cross-document memory reuse.
+- Adaptive routing based on latency or cost budgets.
+- Support for multiple backend LLMs (Gemini, GPT, Claude, local VLMs).
+
+---
+
+15. Important Note
+
+This POC is not intended to replace Gemini.
+
+The goal is to create an AI inference orchestration layer that intelligently decides when a powerful LLM is actually needed. If successful, the same orchestration strategy could be applied to many enterprise document workflows where reducing latency and cloud inference cost is important while maintaining high extraction quality.One recommendation before you start coding: validate the novelty with your manager first. Present the architecture and research hypothesis, and ask whether the team has already explored field-level routing or delegation. A 15-minute discussion now can save weeks of building something that overlaps with an existing internal prototype.
